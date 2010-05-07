@@ -1,312 +1,321 @@
 #!/usr/bin/env python
 
-# MetaWeka: launch all scheme compatible with a given dataset and retrieve
-# the results of the classification or regression
+# MetaClassify: launch all scheme compatible with a given dataset
+# and retrieve the results of the classification or regression
 
-__VERSION = "1.2c (Apr 03, 2006)"
+__VERSION = "1.3 (Dec 21, 2006)"
 
-import optparse, sys, os, time
+import optparse, sys, os
+from time import time
 
 p = optparse.OptionParser(
   usage = "%prog --training-set INPUT [options]",
   version = "%%prog %s" % __VERSION
  )
 
-g = optparse.OptionGroup(p, "options for the input")
+g = optparse.OptionGroup(p, "Input")
 
-g.add_option("--training-set", dest = "training_arff_filename",
+# Training and test sets
+g.add_option("--training-set", dest = "training_arff_file",
   help = "ARFF-formated training dataset")
 
-g.add_option("--test-set", dest = "test_arff_filename",
-  help = """ARFF-formated test dataset. If not test dataset is provided, Weka
-will evaluate the performances of the classifiers through a 10-fold cross-validation""")
+g.add_option("--test-set", dest = "test_arff_file",
+  help = """ARFF-formated test dataset. If not test dataset is provided, WEKA
+will evaluate the classifiers using a 10-fold cross-validation""")
 
-g.add_option("-e", "--embed-in", dest = "embed_in",
-  help = "Embed each classifier in the given meta-learner")
+# Choice of the classifiers
+g.add_option("--exclude", dest = "excluded_classifier", action = "append",
+  help = "Exclude this classifier (black list)")
 
-g.add_option("--restrict-to", dest = "restrict_to", action = "append",
-  help = """Allow to restrict the list of the classifiers finally selected to
-the ones provided with this option (can be used several times). The final
-list of classifiers is the intersection between the ones that are compatible
-with the dataset and the ones declared by this option""")
+g.add_option("--exclude-from", dest = "excluded_classifiers_list",
+  help = "Exclude the classifiers declared in this text file (one classifier per line)")
 
-g.add_option("--restrict-to-list", dest = "restrict_to_list",
-  help = """Same than '--restrict-to', but read the list of the classifiers to
-allow in a text file (one classifier per line)""")
+g.add_option("--only", dest = "forced_classifier", action = "append",
+  help = "Only use this classifier (white list)")
 
-g.add_option("--exclude", dest = "exclude", action = "append",
-  help = """Opposite to '--restrict-to': allow you to avoid some classifiers
-to be used""")
+g.add_option("--only-from", dest = "forced_classifiers_list",
+  help = "Only use the classifiers declared in this text file (one classifier per line)")
 
-g.add_option("--exclude-list", dest = "exclude_list",
-  help = """Opposite to '--restrict-to-list': allow you to avoid classifiers
-from a list stored in a text file to be used""")
-
-g.add_option("--extract-from", dest = "extract_from",
+# Use of previous run
+g.add_option("--use-output", dest = "previous_output_file",
   help = """Instead of running a new analysis, extract the results from a
-previously saved HTML-formated Weka output (generated with the '-o' option). If
-set, '--test-set' will be ignored""")
+previously saved HTML-formated WEKA output (as generated with the '-o' option).
+The original training set is requested; any test set is ignored""")
 
-g.add_option("--use-models", dest = "input_models_path",
-  help = """Instead of running a new analysis, evaluate the performance of
-previously saved Weka models. You must provide here a path to the binary files
-for the models (generated with the '--save-models' options) using '%CLASSIFIER%'
-as a wildcard for the classifier. Example: '--use-models models/%CLASSIFIER%.model'.
-If set, '--test-set' is required and '--training-set' and '-e' are ignored""")
-
-g.add_option("-j", "--jre-option", dest = "jre_option", action = "append",
-  help = "Option for the Java Runtime Environment")
-
-g.add_option("-w", "--weka-option", dest = "weka_option", action = "append",
-  help = """Option for Weka. Be sure to know what you're doing as some options
-can interfer with MetaClassify""")
+g.add_option("--use-models", dest = "previous_model_files",
+  help = """Instead of building new models, use previously saved ones (option
+'--save-models'). A path to the corresponding binary files is requested, using
+a triple underscore '___' as a wildcard for the classifiers' name. Example:
+'--use-models models/___.model'. The original training set is ignored; a test
+set is required""")
 
 p.add_option_group(g)
 
-g = optparse.OptionGroup(p, "options for the output")
+g = optparse.OptionGroup(p, "Modifiers")
 
-g.add_option("-s", "--scores", dest = "scores_report_filename",
-  help = "Output file for the classifiers' scores (tab-delimited format)")
+g.add_option("-e", "--embed-in", dest = "wrapper",
+  help = "Embed each classifier in the given metaclassifier")
 
-g.add_option("-o", "--output", dest = "weka_output_filename",
-  help = "Output file for the Weka classifiers output (HTML format)")
+g.add_option("-j", "--java-option", dest = "java_option", action = "append",
+  help = "Option for the Java Runtime Environment")
 
-g.add_option("-c", "--classes", dest = "classes_report_filename",
-  help = "Output file for the accuracy by class scores (tab-delimited format)")
+g.add_option("--java-executable", dest = "java_executable", default = "java",
+  help = "Java executable. Default: %default")
 
-g.add_option("--training-errors", dest = "training_errors", action = "store_true", default = False,
+g.add_option("-w", "--weka-option", dest = "weka_option", action = "append",
+  help = """Option for WEKA. Be sure to know what you're doing as some options
+can interfer with MetaClassify""")
+
+g.add_option("-q", "--quick-exit", dest = "do_allow_interrupt", action = "store_true", default = False,
+  help = """If set, quit the program when pressing Control-C (instead of just
+skipping the current running classifier)""")
+
+p.add_option_group(g)
+
+g = optparse.OptionGroup(p, "Output")
+
+# Save output and performances
+g.add_option("-o", "--output", dest = "weka_output_file",
+  help = "HTML-formatted WEKA output for all the selected classifiers")
+
+g.add_option("-p", "--performances", dest = "performances_output_file",
+  help = "Output file for the performances per model (tab-delimited format)")
+
+g.add_option("-c", "--classes", dest = "classes_output_file",
+  help = "Output file for the performances per class (classification schemes only; tab-delimited format)")
+
+# Save data for further run
+g.add_option("--training-errors", dest = "do_save_training_errors", action = "store_true", default = False,
   help = """If set, the errors reported will the the ones on the training set,
 and not on the test set or by cross-validation. An error will be thrown if no
 training set have been used to build the model""")
 
-g.add_option("--save-models", dest = "save_models", action = "store_true", default = False,
-  help = """If set, ask Weka to save the Java object of the model for each
-classifier (only the model on the training set is saved, not the multiple ones
-generated by the cross-validation). The models are saved on the current directory
-under this name: X.Y.model, where 'X' is the name of the training ARFF file and
-'Y' the name of the classifier""")
+g.add_option("--save-models", dest = "do_save_models", action = "store_true", default = False,
+  help = """Save the built models as binary objects for further use. Only the
+models on the training set are saved, not the multiple ones generated by the
+cross-validation. The models are saved on the current directory as 'X.Y.model',
+with 'X' the name of the training ARFF file and 'Y' the name of the classifier""")
 
-g.add_option("--save-models-as", dest = "output_models_path",
-  help = """Same effect than '--save-models', but allow to precise how the
-models must be saved. You have to give a complete path, including '%CLASSIFIER%'
-somewhere (this will be replaced by the name of the classifier. Example:
-'--save-models-as models/my_project.%CLASSIFIER%.model'""")
-
-g.add_option("--create-sge-job", dest = "sge_job_name",
-  help = """If set, a shell script file (SGD_JOB_NAME.sh) will be generated in
-order to run each classifier on a grid's node by using the Sun Grid Engine (SGE)
-framework. When the job is completed an HTML-formated file usable with the
-'--extract-from' option is created (SGD_JOB_NAME.html). SGD_JOB_NAME must
-contains only letters or digits. If set, '-s', '-o', 'c' and '--extract-from'
-will be ignored""")
-
-g.add_option("--sge-option", dest = "sge_option", action = "append",
-  help = "Option for the SGE tasks created with '--create-sge-job'")
+g.add_option("--save-models-to", dest = "model_files",
+  help = """Same as '--save-models', with the models saved according to the
+provided pattern. You have to give a complete path, with a triple underscore
+'___' that will be automatically replaced by the name of each classifier.
+Example: '--save-models-to models/___.model'""")
 
 p.add_option_group(g)
 
-CWD = os.path.abspath(os.path.dirname(sys.argv[0]))
+g = optparse.OptionGroup(p, "Alternative output")
 
-p.add_option("--classifiers-properties", dest = "classifiers_properties",
-  default = os.path.join(CWD, "weka", "classifiers.properties"), help = optparse.SUPPRESS_HELP)
+g.add_option("--dump-jobs", dest = "job_filename",
+  help = """If set, WEKA will not be called but a text file with the
+corresponding command-lines will be generated instead. This allows to delegate
+the execution of WEKA to an other computer, like a cluster. The individual
+outputs of these command-lines can be reused (option '--use-output') after
+concatenating them into a single file""")
 
-p.add_option("--classifiers-parameters", dest = "classifiers_parameters",
-  default = os.path.join(CWD, "weka", "classifiers.parameters"), help = optparse.SUPPRESS_HELP)
-
-p.add_option("--quick-exit", dest = "allow_interrupt", action = "store_true", default = False,
-  help = """If set, exit the program when pressing Control-C instead of just
-skipping the current classifier""")
+p.add_option_group(g)
 
 (p, a) = p.parse_args()
 
+def error (msg):
+	print >>sys.stderr, " ERROR: %s." % msg
+	sys.exit(1)
+
 def perror (msg):
-	print >>sys.stderr, " %s.\n Use '--help' for options." % msg
-	sys.exit(1)
-
-if (not p.input_models_path):
-	if (not p.training_arff_filename) or (not os.path.exists(p.training_arff_filename)):
-		perror("An ARFF-formated training dataset is required")
-else:
-	if (not p.test_arff_filename) or (not os.path.exists(p.test_arff_filename)):
-		perror("An ARFF-formated test dataset is required")
-
-	if (p.training_errors):
-		perror("Extraction of errors on training set is not possible when starting from a previously saved model")
-
-	p.training_arff_filename = p.test_arff_filename
-
-if (not p.extract_from) and (p.test_arff_filename) and (not os.path.exists(p.test_arff_filename)):
-	perror("Invalid test set file: '%s'" % p.test_arff_filename)
-
-if (not p.sge_job_name):
-	if (p.extract_from != None) and (not os.path.exists(p.extract_from)):
-		perror("Unknown report file '%s'" % p.extract_from)
-
-	if (p.scores_report_filename == None):
-		perror("At least one output file is required to store scores")
-
-if p.restrict_to_list and (not os.path.exists(p.restrict_to_list)):
-	perror("The file '%s' didn't exists" % p.restrict_to_list)
-
-if p.exclude_list and (not os.path.exists(p.exclude_list)):
-	perror("The file '%s' didn't exists" % p.exclude_list)
-
-if p.input_models_path:
-	if (p.input_models_path.find("%CLASSIFIER%") == -1):
-		perror("The '%CLASSIFIER%' wildcard is missing for --use-models")
-
-	import glob
-	if (len(glob.glob(p.input_models_path.replace("%CLASSIFIER%", '*'))) == 0):
-		perror("No file match the pattern '%s'" % p.input_models_path)
-
-	p.input_models_path = p.input_models_path.replace("%CLASSIFIER%", "%s")
-
-if p.output_models_path:
-	p.save_models = True
-
-	if (p.output_models_path.find("%CLASSIFIER%") == -1):
-		perror("The '%CLASSIFIER%' wildcard is missing for --save-models-as")
-
-	p.output_models_path = p.output_models_path.replace("%CLASSIFIER%", "%s")
-
-if p.sge_job_name:
-	import string
-	allowed_characters = string.letters + string.digits + '.+'
-
-	for c in p.sge_job_name:
-		if (not c in allowed_characters):
-			perror("Invalid job name '%s'" % p.sge_job_name)
-
-#::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-print ":: MetaClassify v%s\n" % __VERSION
-
-from weka import meta, utils
-
-print " Reading meta-informations on classifiers ...",
-
-CLASSIFIERS_PARAMETERS = {}
-
-for (classifier, parameters) in utils.TextReader(p.classifiers_parameters):
-	CLASSIFIERS_PARAMETERS[classifier] = parameters
-
-mw = meta.Classifiers(p.classifiers_properties)
-n = len(mw.declared_classifiers())
-
-print "done (%s classifiers declared)" % n
-
-if (not p.input_models_path):
-	print " Training dataset: %s" % p.training_arff_filename
-
-if (p.test_arff_filename):
-	print " Test dataset: %s" % p.test_arff_filename
-
-print " Determining dataset type ...",
-
-try:
-	dataset = meta.Dataset(p.training_arff_filename)
-
-except Exception, msg:
-	print >>sys.stderr, " Error while reading the dataset.\n %s" % msg
-	sys.exit(1)
-
-CLASS, ATTRIBUTES = dataset.get_class(), dataset.get_attributes()
-
-attributes_type = {}
-for type, name in ATTRIBUTES:
-	attributes_type[type] = True
-
-print "done (class: %s, attributes: %s)" % (CLASS[0], " and ".join(attributes_type.keys()))
-
-classifiers = mw.compatible_classifiers(CLASS, ATTRIBUTES)
-
-print "\n Compatibility: %s/%s classifiers" % (len(classifiers), n)
-
-for classifier in classifiers:
-	print "   %s" % classifier
-
-print
-
-# Managing user-provided white- and black-list of classifiers
-white_list = {}
-
-if (p.restrict_to_list):
-	for classifier in utils.TextReader(p.restrict_to_list, False):
-		white_list[classifier.lower()] = True
-
-if (p.restrict_to):
-	for classifier in p.restrict_to:
-		white_list[classifier.lower().strip()] = True
-
-black_list = {}
-
-if (p.exclude_list):
-	for classifier in utils.TextReader(p.exclude_list, False):
-		black_list[classifier.lower()] = True
-
-if (p.exclude):
-	for classifier in p.exclude:
-		black_list[classifier.lower().strip()] = True
-
-
-has_white_list = (len(white_list) > 0)
-has_black_list = (len(black_list) > 0)
-
-if (has_white_list or has_black_list):
-	final_list = classifiers
-
-	if has_white_list:
-		final_list = filter(lambda x: x.lower() in white_list, final_list)
-
-	if has_black_list:
-		final_list = filter(lambda x: x.lower() not in black_list, final_list)
-
-	print " Chosen classifiers: %s" % len(final_list)
-
-	if (len(final_list) == 0):
-		print "   Done."
-		sys.exit(0)
-
-	for classifier in final_list:
-		print "   %s" % classifier
-
-	classifiers = final_list
-	print
+	error("%s.\n Use '--help' for options" % msg)
 
 #:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-# Construction of the command using Weka
-if p.output_models_path:
-	output_model_file = p.output_models_path
+from lib import *
+
+print ":: MetaClassify v%s\n" % __VERSION
+
+# Check options compatibility
+if (p.previous_output_file is not None) + \
+   (p.previous_model_files is not None) + \
+   (p.job_filename is not None) > 1:
+	perror("Options '--use-output', '--use-models' and '--dump-jobs' can't be used together")
+
+# Do we need to build/save new models?
+p_do_build_models = (not p.previous_output_file) and (not p.previous_model_files)
+p_do_save_models = (p.model_files or p.do_save_models)
+
+if (not p_do_build_models) and (p_do_save_models):
+	perror("No model can be saved if no new model is generated")
+
+if (not p.weka_output_file) and (not p.performances_output_file) and (not p.classes_output_file):
+	print " WARNING: no output will be saved."
+
+# Do we need training and test datasets?
+p_do_need_training_set = (p.previous_model_files == None) or (p.do_save_training_errors) ###?
+p_do_need_test_set = (p.previous_model_files != None)
+
+p_do_select_classifiers = True#p_do_need_training_set
+
+# Do we need to execute WEKA?
+p_do_weka_execution = (not p.job_filename)
+
+# Do we need to parse/save the WEKA outputs?
+p_do_save_weka_output = (not p.previous_output_file)
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# If we need a training set,
+if (p_do_need_training_set):
+	if (not p.training_arff_file) or (not os.path.exists(p.training_arff_file)):
+		perror("An ARFF-formated training set is requested")
+
+	print " Training dataset: %s" % p.training_arff_file
+
+# If we need a test set,
+if (p_do_need_test_set):
+	if (not p.test_arff_file) or (not os.path.exists(p.test_arff_file)):
+		perror("An ARFF-formated test set is requested")
+
+# If not, we check it existence if a file is provided
 else:
-	base = os.path.basename(p.training_arff_filename)
-	if base.endswith(".arff"):
-		base = base[:-5]
+	if (p.test_arff_file) and (not os.path.exists(p.test_arff_file)):
+		perror("File '%s' not found" % p.test_arff_file)
 
-	output_model_file = base + ".%s.model"
+if (p.test_arff_file):
+	print " Test dataset: %s" % p.test_arff_file
 
-def prepare_cmd (classifier):
+# If we need to select classifiers,
+if (p_do_select_classifiers):
+
+	# Then the classifiers inclusing/exclusion directives must be checked
+	if (p.excluded_classifiers_list) and (not os.path.exists(p.excluded_classifiers_list)):
+		perror("File '%s' not found" % p.excluded_classifiers_list)
+
+	p_classifiers_black_list = {}
+
+	if (p.excluded_classifiers_list):
+		for classifier in TextReader(p.excluded_classifiers_list, False):
+			p_classifiers_black_list[classifier.lower()] = True
+
+	if (p.excluded_classifier):
+		for classifier in p.excluded_classifier:
+			p_classifiers_black_list[classifier.lower().strip()] = True
+
+	if (p.forced_classifiers_list) and (not os.path.exists(p.forced_classifiers_list)):
+		perror("File '%s' not found" % p.forced_classifiers_list)
+
+	p_has_black_list = (len(p_classifiers_black_list) > 0)
+
+	p_classifiers_white_list = {}
+
+	if (p.forced_classifiers_list):
+		for classifier in TextReader(p.forced_classifiers_list, False):
+			p_classifiers_white_list[classifier.lower()] = True
+
+	if (p.forced_classifier):
+		for classifier in p.forced_classifier:
+			p_classifiers_white_list[classifier.lower().strip()] = True
+
+	p_has_white_list = (len(p_classifiers_white_list) > 0)
+
+if (p_do_save_models):
+	assert p_do_need_training_set ###
+
+	if (p.model_files):
+		if (p.model_files.find("___") == -1):
+			perror("The '___' wildcard is missing for '--save-models-to'")
+
+		p_model_files = p.model_files.replace("___", "%s")
+
+	else:
+		base = os.path.basename(p.training_arff_file)
+		if base.endswith(".arff"):
+			base = base[:-5]
+
+		p_model_files = base + ".%s.model"
+
+if (p.previous_output_file) and (not os.path.exists(p.previous_output_file)):
+	perror("File '%s' not found" % p.previous_output_file)
+
+# If models need to be loaded or saved, we check the paths
+if (p.previous_model_files):
+	if (p.previous_model_files.find("___") == -1):
+		perror("The '___' wildcard is missing for '--use-models'")
+
+	from glob import glob
+
+	if (len(glob(p.previous_model_files.replace("___", '*'))) == 0):
+		perror("No file match the pattern '%s'" % p.previous_model_files)
+
+	p.previous_model_files = p.previous_model_files.replace("___", "%s")
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# If wee need to select classifiers,
+if (p_do_select_classifiers):
+	print " Load classifiers metadata ...",
+
+	classifiers_metadata = weka_capabilities.Classifiers()
+	n = len(classifiers_metadata.declared_classifiers())
+
+	print "done (%s classifiers declared)" % n
+
+	if (p_do_need_training_set):
+		p_classifiers = classifiers_metadata.compatible_classifiers(p.training_arff_file)
+
+		print "\n Compatibility: %s out of %s classifiers" % (len(p_classifiers), n)
+
+		for classifier in p_classifiers:
+			print "   %s" % classifier
+
+		print
+
+	else:
+		p_classifiers = classifiers_metadata.declared_classifiers()
+
+	if (p_has_white_list or p_has_black_list):
+		final_list = p_classifiers
+
+		if (p_has_white_list):
+			final_list = filter(lambda x: x.lower() in p_classifiers_white_list, final_list)
+
+		if (p_has_black_list):
+			final_list = filter(lambda x: x.lower() not in p_classifiers_black_list, final_list)
+
+		print " User-selected classifiers: %s" % len(final_list)
+
+		if (len(final_list) == 0):
+			print "   Done (no classifier left)."
+			sys.exit(0)
+
+		for classifier in final_list:
+			print "   %s" % classifier
+
+		p_classifiers = final_list
+		print
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# Construction of the command using WEKA
+def command_line_builder (classifier):
+
 	weka_options = ["-i"]
 
-	if p.test_arff_filename:
-		weka_options.append("-T %s" % p.test_arff_filename)
+	if (p.test_arff_file):
+		weka_options.append("-T %s" % p.test_arff_file)
 
-	if p.save_models:
-		weka_options.append("-d " + output_model_file % classifier)
+	if (p_do_save_models):
+		weka_options.append("-d " + p_model_files % classifier)
 
-	if p.weka_option:
+	if (p.weka_option):
 		weka_options.extend(p.weka_option)
 
 	weka_options = ' '.join(weka_options)
 
-	if p.jre_option:
-		cmd = "java %s " % ' '.join(p.jre_option)
+	if (p.java_option):
+		cmd = "%s %s " % (p.java_executable, ' '.join(p.java_option))
 	else:
-		cmd = "java "
+		cmd = "%s " % p.java_executable
 
 	# launching a classifier on a test dataset
-	if (p.input_models_path):
-		input_model_file = p.input_models_path % classifier
+	if (p.previous_model_files):
+		input_model_file = p.previous_model_files % classifier
 
 		if (not os.path.exists(input_model_file)):
 			print "error\n!  The model file '%s' didn't exists." % input_model_file
@@ -315,96 +324,21 @@ def prepare_cmd (classifier):
 		cmd += "%s -l %s %s" % (classifier, input_model_file, weka_options)
 	else:
 		# launching the classifier on a training dataset
-		if (p.embed_in == None):
-			cmd += "%s -t %s %s" % (classifier, p.training_arff_filename, weka_options)
+		if (p.wrapper == None):
+			cmd += "%s -t %s %s" % (classifier, p.training_arff_file, weka_options)
 
 		# launching a classifier within a meta one on a training dataset
 		else:
-			cmd += "%s -t %s -W %s %s --" % (p.embed_in, p.training_arff_filename, classifier, weka_options)
+			cmd += "%s -t %s -W %s %s --" % (p.wrapper, p.training_arff_file, classifier, weka_options)
 
-		if (classifier in CLASSIFIERS_PARAMETERS):
-			cmd += ' ' + CLASSIFIERS_PARAMETERS[classifier]
+		parameters = classifiers_metadata.get_parameters(classifier)
+		if (parameters):
+			cmd += ' ' + parameters
 
 	return cmd
 
-# Preparation of jobs to run with SGE
-if (p.sge_job_name):
-	print " Preparing jobs for SGE ...",
-
-	script_filename = "%s.sh" % p.sge_job_name
-	script = open(script_filename, 'w')
-
-	print >>script, "#!/bin/sh"
-	print >>script, "# Launcher for '%s' (MetaClassify)" % p.sge_job_name
-
-	# dispatch
-	print >>script, '\n#' + ':' * 79
-	print >>script, "qsub << DISPATCH_SCRIPT_END\n"
-
-	print >>script, "#$ -S /bin/sh"
-	print >>script, "#$ -t 1-%s:2" % (len(classifiers) * 2 - 1)
-	print >>script, "#$ -N %s" % p.sge_job_name
-	print >>script, "#$ -cwd"
-
-	if (p.sge_option):
-		for option in p.sge_option:
-			print >>script, "#$ %s" % option
-
-	print >>script, "\nparameters=("
-
-	for classifier in classifiers:
-		cmd = prepare_cmd(classifier)
-
-		print >>script, "  \"%s\"" % classifier
-		print >>script, "  \"%s\"" % cmd.replace('"', '\"')
-
-	print >>script, " )\n"
-
-	print >>script, "classifier=\${parameters[\$SGE_TASK_ID-1]}"
-	print >>script, "cmd=\${parameters[\$SGE_TASK_ID]}"
-
-	print >>script, "\necho"
-	print >>script, "echo \"<hr><h3>\$classifier</h3>\""
-	print >>script, "echo \"<pre>\""
-	print >>script, "eval \$cmd"
-	print >>script, "echo \"</pre>\""
-	print >>script, "echo \"<code><font color=\'grey\'>\$cmd</font></code>\""
-
-	print >>script, "DISPATCH_SCRIPT_END"
-
-	# finalize
-	print >>script, '\n#' + ':' * 79
-	print >>script, "qsub << FINALIZE_SCRIPT_END\n"
-
-	print >>script, "#$ -S /bin/sh"
-	print >>script, "#$ -N %s.finalize" % p.sge_job_name
-	print >>script, "#$ -hold_jid %s" % p.sge_job_name
-	print >>script, "#$ -o /dev/null"
-	print >>script, "#$ -e /dev/null"
-	print >>script, "#$ -cwd"
-
-	print >>script, "\ncat %s.o*.* > %s.html\n" % (p.sge_job_name, p.sge_job_name)
-
-	print >>script, "rm %s.o*.*" % p.sge_job_name
-	print >>script, "rm `find . -name \"%s.e*.*\" -size 0c`" % p.sge_job_name
-
-	print >>script, "FINALIZE_SCRIPT_END"
-
-	print >>script, "\necho \"----\""
-	print >>script, "echo \"  Note: the task '%s' is complete only\"" % p.sge_job_name
-	print >>script, "echo \"  when the file '%s.html' is created.\"" % p.sge_job_name
-	print >>script, "echo"
-
-	script.close()
-	os.chmod(script_filename, 0744)
-
-	print "ok (script '%s' created)" % script_filename
-
-	print "\n Done."
-	sys.exit(0)
-
 # Execution of a given command line
-def execute_cmd (cmd):
+def command_line_execution (cmd):
 	try:
 		o = os.popen(cmd, 'r')
 		data = o.readlines()
@@ -416,7 +350,7 @@ def execute_cmd (cmd):
 		return data
 
 	except KeyboardInterrupt:
-		if (p.allow_interrupt):
+		if (p.do_allow_interrupt):
 			print "exiting"
 			sys.exit(0)
 		else:
@@ -427,9 +361,27 @@ def execute_cmd (cmd):
 		print "error\n!  %s" % msg
 		return None
 
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+if (p.job_filename):
+	print " Dumping command lines to '%s' ..." % p.job_filename,
+	sys.stdout.flush()
+
+	o = open(p.job_filename, 'w')
+
+	for classifier in p_classifiers:
+		cmd = command_line_builder(classifier)
+		print >>o, "echo -e \"\\n<hr><h3>%s</h3>\\n<pre>\"; %s; echo -e \"</pre>\\n<code><font color=\'grey\'>%s</font></code>\"" % (classifier, cmd, cmd.replace('"', '\"'))
+
+	o.close()
+
+	print "done"
+	sys.exit(0)
+
 # Extraction of previously saved results
-if (p.extract_from):
-	report_file = open(p.extract_from, 'r')
+# TODO: TO PUT THIS IN 'WEKA_OUTPUT'
+if (p.previous_output_file):
+	report_file = open(p.previous_output_file, 'r')
 	report_index = {}
 
 	while True:
@@ -439,7 +391,7 @@ if (p.extract_from):
 
 		l = l.strip()
 
-		if l.startswith("<hr><h3>weka.classifiers"):
+		if l.startswith("<hr><h3>weka.classifiers."):
 			classifier = l[8:-5]
 			report_file.readline()
 			position = report_file.tell()
@@ -479,106 +431,110 @@ if (p.extract_from):
 
 		return data
 
-#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: Main loop
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-from weka import parsing
+O, P, C = None, None, None
+
+# Preparing WEKA output
+if (p.weka_output_file):
+	O = open(p.weka_output_file, 'w')
+
+	print >>O, "<h2>MetaClassify</h2>"
+	header = []
+
+	if (p_do_need_training_set):
+		header.append("Training dataset: <code>%s</code>" % p.training_arff_file)
+
+	if (p_do_need_test_set):
+		header.append("Test dataset: <code>%s</code>" % p.test_arff_file)
+
+	print >>O, "<br>\n".join(header)
+
+# Preparing model performances output
+if (p.performances_output_file):
+	P = open(p.performances_output_file, 'w')
+	print >>P, "Classifier	Model	%s	Time" % '	'.join(weka_output.MODELS_PERFORMANCES_SCORES)
+
+# Preparing class performances output
+if (p.classes_output_file):
+	C = open(p.classes_output_file, 'w')
+	print >>C, "Classifier	%s	Known	Predicted" % '	'.join(weka_output.CLASSES_PERFORMANCES_SCORES)
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 print " Running schemes"
 
-scores_report = open(p.scores_report_filename, 'w')
-weka_output = None
-accuracy_report = None
-
-print >>scores_report, "# Classifier	Model	%s	Time" % '	'.join(parsing.CLASSIFICATION_PERFORMANCE_KEYWORDS)
-
-if (p.weka_output_filename != None):
-	weka_output = open(p.weka_output_filename, 'w')
-
-	print >>weka_output, "<h2>MetaClassify</h2>"
-	datasets = []
-
-	if (not p.input_models_path):
-		datasets.append("Training dataset: <code>%s</code>" % p.training_arff_filename)
-
-	if (p.test_arff_filename):
-		datasets.append("Test dataset: <code>%s</code>" % p.test_arff_filename)
-
-	print >>weka_output, "<br>\n".join(datasets)
-
-if (p.classes_report_filename != None):
-	accuracy_report = open(p.classes_report_filename, 'w')
-
-	print >>accuracy_report, "# Classifier	%s	Known	Predicted" % '	'.join(parsing.CLASSIFICATION_ACCURACY_KEYWORDS)
-
-def error (msg):
+def rerror (msg):
 	print "error"
-	if (msg != None):
+	if (msg):
 		for line in str(msg).split('\n'):
 			print " ! %s" % line
 
-for classifier in classifiers:
+for classifier in p_classifiers:
 
-	print "   %s ..." % classifier,
-	sys.stdout.flush()
+	# Run the classifier (or extract previously saved results)
+	if (p.previous_output_file):
+		print "   (read) %s ..." % classifier,
+		sys.stdout.flush()
 
-	# Getting classification results
-	start = time.time()
+		w_output = extract_output(classifier)
+		execution_time = ''
 
-	if (p.extract_from):
-		print "(from previous report)",
-
-		output = extract_output(classifier)
-		if (output == None):
-			error("No entry in the WEKA output for this classifier.")
+		if (w_output == None):
+			rerror("No entry in the WEKA output for this classifier.")
 			continue
 
 	else:
-		cmd = prepare_cmd(classifier)
+		print "   %s ..." % classifier,
+		sys.stdout.flush()
+
+		cmd = command_line_builder(classifier)
 		if (cmd == None):
 			continue
 
-		output = execute_cmd(cmd)
-		if (output == None):
+		now = time()
+		w_output = command_line_execution(cmd)
+		execution_time = "%.3f" % (time() - now)
+
+		if (w_output == None):
 			continue
 
-		if weka_output:
-			print >>weka_output, "\n<hr><h3>%s</h3>" % classifier
-			print >>weka_output, "<pre>"
+	if (P or C):
+		try:
+			w_results = weka_output.extract_classification_results(w_output, p.do_save_training_errors)
 
-			for line in output:
-				line = line.replace('<', "&lt;")
-				line = line.replace('>', "&gt;")
-				print >>weka_output, line,
+		except Exception, msg:
+			rerror(msg)
+			continue
 
-			print >>weka_output, "</pre>"
-			print >>weka_output, "<code><font color='grey'>%s</font></code>" % cmd
+		(model_type, performances, accuracy, confusion_matrix) = w_results
 
-			weka_output.flush()
+		if (model_type == weka_output.CLASSIFICATION_MODEL):
+			model_type = "classification"
+		else:
+			model_type = "regression"
 
-	stop = time.time()
 
-	# Parsing of the output
-	try:
-		results = parsing.extract_classification_results(output, p.training_errors)
-		(model_type, performances, accuracy, confusion_matrix) = results
-
-	except Exception, msg:
-		error(msg)
-		continue
-
-	# Scores report
-	if (model_type == parsing.CLASSIFICATION_MODEL):
-		mt = "classification"
-	else:
-		mt = "regression"
-
-	print >>scores_report, "%s	%s	%s	%.3f" % (classifier, mt, '	'.join(performances), (stop - start))
-
-	scores_report.flush()
 	print "ok"
 
-	# Accuracy report
-	if (model_type == parsing.CLASSIFICATION_MODEL) and accuracy_report:
+	# Parse and save the results
+	if (O):
+		print >>O, "\n<hr><h3>%s</h3>" % classifier
+		print >>O, "<pre>"
+
+		for l in w_output:
+			print >>O, l.replace('<', "&lt;").replace('>', "&gt;"),
+
+		print >>O, "</pre>"
+		print >>O, "<code><font color='grey'>%s</font></code>" % cmd
+		O.flush()
+
+	if (P):
+		print >>P, "%s	%s	%s	%s" % (classifier, model_type, '	'.join(performances), execution_time)
+		P.flush()
+
+	if (C) and (model_type == "classification"):
+
 		classes = [clazz for (clazz, performances) in accuracy]
 
 		for (clazz, performances) in accuracy:
@@ -586,8 +542,13 @@ for classifier in classifiers:
 			for i, value in enumerate(confusion_matrix[clazz]):
 				predicted.append("%s: %s" % (classes[i], value))
 
-			print >>accuracy_report, "%s	%s	%s	%s" % (classifier, '	'.join(performances), clazz, '	'.join(predicted))
+			print >>C, "%s	%s	%s	%s" % (
+			  classifier,
+			  '	'.join(performances),
+			  clazz,
+			  '	'.join(predicted)
+			 )
 
-		accuracy_report.flush()
+		C.flush()
 
 print "\n Done."

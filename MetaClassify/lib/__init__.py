@@ -1,12 +1,13 @@
+
 # Miscellaneous methods
 
-import os
+import os, sys
 
 class TextReader:
 
 	def __init__ (self, file, split = True):
 		if (not os.path.exists(file)):
-			print >>sys.stderr, " Error : file '%s' not found." % file
+			print >>sys.stderr, " Error: file '%s' not found." % file
 			sys.exit(1)
 
 		self.source = open(file, 'r')
@@ -32,3 +33,7 @@ class TextReader:
 				return line.split('	')
 			else:
 				return line
+
+PATH = os.path.dirname(__file__)
+
+import weka_capabilities, weka_output

@@ -1,10 +1,38 @@
-# Parsing of Weka output
+# Parsing of WEKA output
+
+MODELS_PERFORMANCES_SCORES = (
+  # classification scheme
+  "Correctly classified instances",
+  "Incorrectly classified instances",
+  "Kappa statistic",
+
+  # regression scheme
+  "Correlation coefficient",
+
+  # both
+  "Mean absolute error",
+  "Root mean squared error",
+  "Relative absolute error",
+  "Root relative squared error",
+ )
+
+CLASSES_PERFORMANCES_SCORES = (
+  "TP Rate",
+  "FP Rate",
+  "Precision",
+  "Recall",
+  "F-Measure",
+  "ROC Area",
+ )
+
+CLASSIFICATION_MODEL = 0
+REGRESSION_MODEL = 1
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 from pyparsing import *
 
 REAL = Combine(Word("+-" + nums, nums) + Optional('.' + Optional(Word(nums))))
-
-#:::::::::::::::::::::::::::::::::::::::::::::::::::::::: Classification report
 
 TRAINING_PERFORMANCES_SECTION = \
   Literal("=== Error on training data ===")
@@ -17,7 +45,8 @@ TEST_PERFORMANCES_SECTION = \
 PERFORMANCE_ITEM = \
   Word(alphas + ' ') + OneOrMore(REAL) + Suppress(Optional('%'))
 
-ACCURACY_PER_CLASS_SECTION = Literal("=== Detailed Accuracy By Class ===") + Suppress(
+# with ROC area
+ACCURACY_PER_CLASS_SECTION_a = Literal("=== Detailed Accuracy By Class ===") + Suppress(
   Literal("TP Rate") + \
   Literal("FP Rate") + \
   Literal("Precision") + \
@@ -26,13 +55,30 @@ ACCURACY_PER_CLASS_SECTION = Literal("=== Detailed Accuracy By Class ===") + Sup
   Literal("ROC Area") + \
   Literal("Class"))
 
-ACCURACY_ITEM = \
+ACCURACY_ITEM_a = \
   REAL + \
   REAL + \
   REAL + \
   REAL + \
   REAL + \
   (REAL ^ '?') + \
+  Word(printables)
+
+# without ROC area
+ACCURACY_PER_CLASS_SECTION_b = Literal("=== Detailed Accuracy By Class ===") + Suppress(
+  Literal("TP Rate") + \
+  Literal("FP Rate") + \
+  Literal("Precision") + \
+  Literal("Recall") + \
+  Literal("F-Measure") + \
+  Literal("Class"))
+
+ACCURACY_ITEM_b = \
+  REAL + \
+  REAL + \
+  REAL + \
+  REAL + \
+  REAL + \
   Word(printables)
 
 CONFUSION_MATRIX_SECTION = Literal("=== Confusion Matrix ===") + \
@@ -47,8 +93,8 @@ CLASSIFICATION_REPORT = \
     TRAINING_PERFORMANCES_SECTION + \
     Group(OneOrMore(Group(PERFORMANCE_ITEM))) + \
     Optional(
-      ACCURACY_PER_CLASS_SECTION + \
-      Group(OneOrMore(Group(ACCURACY_ITEM))) + \
+      ((ACCURACY_PER_CLASS_SECTION_a + Group(OneOrMore(Group(ACCURACY_ITEM_a)))) | \
+	   (ACCURACY_PER_CLASS_SECTION_b + Group(OneOrMore(Group(ACCURACY_ITEM_b))))) + \
       CONFUSION_MATRIX_SECTION + \
       Group(OneOrMore(Group(CONFUSION_MATRIX_ITEM)))
      )
@@ -56,39 +102,11 @@ CLASSIFICATION_REPORT = \
   TEST_PERFORMANCES_SECTION + \
   Group(OneOrMore(Group(PERFORMANCE_ITEM))) + \
   Optional(
-    ACCURACY_PER_CLASS_SECTION + \
-    Group(OneOrMore(Group(ACCURACY_ITEM))) + \
+    ((ACCURACY_PER_CLASS_SECTION_a + Group(OneOrMore(Group(ACCURACY_ITEM_a)))) | \
+     (ACCURACY_PER_CLASS_SECTION_b + Group(OneOrMore(Group(ACCURACY_ITEM_b))))) + \
     CONFUSION_MATRIX_SECTION + \
     Group(OneOrMore(Group(CONFUSION_MATRIX_ITEM)))
    )
-
-CLASSIFICATION_PERFORMANCE_KEYWORDS = (
-  # classification results
-  "Correctly classified instances",
-  "Incorrectly classified instances",
-  "Kappa statistic",
-
-  # regression results
-  "Correlation coefficient",
-
-  # both
-  "Mean absolute error",
-  "Root mean squared error",
-  "Relative absolute error",
-  "Root relative squared error",
- )
-
-CLASSIFICATION_ACCURACY_KEYWORDS = (
-  "TP Rate",
-  "FP Rate",
-  "Precision",
-  "Recall",
-  "F-Measure",
-  "ROC Area",
- )
-
-CLASSIFICATION_MODEL = 0
-REGRESSION_MODEL = 1
 
 def extract_classification_results (stream, extract_training_errors):
 
@@ -99,11 +117,11 @@ def extract_classification_results (stream, extract_training_errors):
 			key, value = item[0].strip().capitalize(), item[-1]
 			m[key] = value
 
-		for keyword in CLASSIFICATION_PERFORMANCE_KEYWORDS:
+		for keyword in MODELS_PERFORMANCES_SCORES:
 			if keyword in m:
 				performances.append(m[keyword])
 			else:
-				performances.append('-')
+				performances.append('')
 
 		return performances
 
@@ -112,6 +130,11 @@ def extract_classification_results (stream, extract_training_errors):
 
 		for item in block:
 			clazz, scores = item[-1].strip("'").strip('"'), item[:-1]
+
+			# missing ROC area
+			if (len(scores) == 5):
+				scores.append('?')
+
 			accuracy.append((clazz, scores))
 
 		return accuracy
