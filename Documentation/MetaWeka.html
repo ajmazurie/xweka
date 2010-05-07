@@ -1,0 +1,191 @@
+
+<h1>MetaWeka/MetaClassify</h1>
+
+<p>If you don't know what is <a href='http://www.cs.waikato.ac.nz/ml/weka/' target='_blank'>Weka</a>, the present tool is maybe not for you ; but if you generate huge quantities of biological data you should consider looking at it. Weka is a very powerful toolbox giving access to several state-of-the-art data mining algorithms that you can apply on your dataset. The main goal is to identify patterns (rules, decision trees, regression models) in your data that link attributes between them, or link attributes to a class.</p>
+
+<p>One of the problem usually encountered with Weka (if you're not a machine learning guru) is to choose the 'best' classifier, the one able to find patterns with the higher accuracy, support, or any other score you have in mind to judge it. MetaWeka has been made to help you to solve this problem. By providing a training dataset in the .arff format, MetaClassify (part of MetaWeka) will
+
+<ol>
+  <li>determine it's type (nominal or numeric class, nominal and/or numeric attributes ; for now, string and date-type attributes are not supported)</li>
+  <li>automatically select the classifiers able to deal with this kind of dataset</li>
+  <li>learn these classifiers on the training set, and either test them on a test set (if provided) or perform a 10-fold cross-validation (if no test set is provided), then retrieve the results</li>
+  <li>generate a report with all the scores (errors and - for classification models  - detailed accuracy per class and confusion matrix), plus an indication of the time took by each algorithm to generate a model</li>
+</ol></p>
+
+<p>Reference :
+<ul>
+  <li>Ian H. Witten and Eibe Frank (2005). Data Mining: Practical machine learning tools and techniques, 2nd Edition, Morgan Kaufmann, San Francisco<br>(note : I really, <b>really</b> urge you to read this book if you're interested by the domain of data mining)</li>
+</ul></p>
+
+<h2>Changelog</h2>
+
+<ul>
+  <li><b>1.2c (2006-04-03)</b>
+    <ul>
+      <li>Better handling (and display) of the errors</li>
+      <li>Added : ability to extract scores on training set</li>
+    </ul></li>
+  <li><b>1.2b (2006-02-09)</b>
+    <ul>
+      <li>Added : test set handling</li>
+      <li>Added : options to exclude the use of some given classifiers</li>
+      <li>Bug related to classifiers' options corrected</li>
+    </ul></li>
+  <li><b>1.2 (2006-01-20)</b>
+    <ul>
+      <li>Better parsing of the Weka output (works with Weka v3.5.1)</li>
+      <li>Added : more scores are extracted (confusion matrix, ROC area)</li>
+      <li>Added : ability to extract scores from previously saved HTML-formated outputs</li>
+      <li>Added : ability to use a meta-classifier</li>
+      <li>Added : ability to use previously saved models</li>
+    </ul></li>
+  <li><b>0.1 (2005-12-09)</b> First version. Works with Weka v3.4.5</li>
+</ul>
+
+<h2>Installation</h2>
+
+<p>MetaWeka require a <a href='http://www.python.org/' target='_blank'>Python</a> interpreter, the <a href='http://pyparsing.sourceforge.net/' target='_blank'>pyparsing</a> library, and Weka to be installed before running. Once done, decompress the MetaWeka installation file ; the software is then accessible through a command-line interface. Please check that <code>weka.jar</code> is in your Java CLASSPATH (see the Weka documentation to do this).</p>
+
+<h2>Usage</h2>
+
+<h3>MetaClassify</h3>
+
+<p>MetaClassify takes a valid <a href='http://weka.sourceforge.net/wekadoc/index.php/en:ARFF_%283.5.1%29' target='_blank'>ARFF</a> file as input, plus some parameters to control the output and the use of Weka. The list of the options can be displayed by typing <code>MetaClassify --help</code> on the command-line.</p>
+
+<p>Options for the input:</p>
+<pre>
+    --training-set=TRAINING_ARFF_FILENAME
+                        ARFF-formated training dataset
+    --test-set=TEST_ARFF_FILENAME
+                        ARFF-formated test dataset. If not test dataset is
+                        provided, Weka will evaluate the performances of the
+                        classifiers through a 10-fold cross-validation
+    -e EMBED_IN, --embed-in=EMBED_IN
+                        Embed each classifier in the given meta-learner
+    --restrict-to=RESTRICT_TO
+                        Allow to restrict the list of the classifiers finally
+                        selected to the ones provided with this option (can be
+                        used several times). The final list of classifiers is
+                        the intersection between the ones that are compatible
+                        with the dataset and the ones declared by this option
+    --restrict-to-list=RESTRICT_TO_LIST
+                        Same than '--restrict-to', but read the list of the
+                        classifiers to allow in a text file (one classifier
+                        per line)
+    --exclude=EXCLUDE   Opposite to '--restrict-to' : allow you to avoid some
+                        classifiers to be used
+    --exclude-list=EXCLUDE_LIST
+                        Opposite to '--restrict-to-list' : allow you to avoid
+                        classifiers from a list stored in a text file to be
+                        used
+    --extract-from=EXTRACT_FROM
+                        Instead of running a new analysis, extract the results
+                        from a previously saved HTML-formated Weka output
+                        (generated with the '-o' option). If set, '--test-set'
+                        will be ignored
+    --use-models=INPUT_MODELS_PATH
+                        Instead of running a new analysis, evaluate the
+                        performance of previously saved Weka models. You must
+                        provide here a path to the binary files for the models
+                        (generated with the '--save-models' options) using
+                        '%CLASSIFIER%' as a wildcard for the classifier.
+                        Example : '--use-models models/%CLASSIFIER%.model'. If
+                        set, '--test-set' is required and '--training-set' and
+                        '-e' are ignored
+    -j JRE_OPTION, --jre-option=JRE_OPTION
+                        Option for the Java Runtime Environment
+    -w WEKA_OPTION, --weka-option=WEKA_OPTION
+                        Option for Weka. Be sure to know what you're doing as
+                        some options can interfer with MetaClassify
+</pre>
+
+<p>Options for the output:</p>
+<pre>
+    -s SCORES_REPORT_FILENAME, --scores=SCORES_REPORT_FILENAME
+                        Output file for the classifiers' scores (tab-delimited
+                        format)
+    -o WEKA_OUTPUT_FILENAME, --output=WEKA_OUTPUT_FILENAME
+                        Output file for the Weka classifiers output (HTML
+                        format)
+    -c CLASSES_REPORT_FILENAME, --classes=CLASSES_REPORT_FILENAME
+                        Output file for the accuracy by class scores (tab-
+                        delimited format)
+    --training-errors   If set, the errors reported will the the ones on the
+                        training set, and not on the test set or by cross-
+                        validation. An error will be thrown if no training set
+                        have been used to build the model
+    --save-models       If set, ask Weka to save the Java object of the model
+                        for each classifier (only the model on the training
+                        set is saved, not the multiple ones generated by the
+                        cross-validation). The models are saved on the current
+                        directory under this name : X.Y.model, where 'X' is
+                        the name of the training ARFF file and 'Y' the name of
+                        the classifier
+    --save-models-as=OUTPUT_MODELS_PATH
+                        Same effect than '--save-models', but allow to precise
+                        how the models must be saved. You have to give a
+                        complete path, including '%CLASSIFIER%' somewhere
+                        (this will be replaced by the name of the classifier.
+                        Example : '--save-models-as
+                        models/my_project.%CLASSIFIER%.model'
+    --create-sge-job=SGE_JOB_NAME
+                        If set, a shell script file (SGD_JOB_NAME.sh) will be
+                        generated in order to run each classifier on a grid's
+                        node by using the Sun Grid Engine (SGE) framework.
+                        When the job is completed an HTML-formated file usable
+                        with the '--extract-from' option is created
+                        (SGD_JOB_NAME.html). SGD_JOB_NAME must contains only
+                        letters or digits. If set, '-s', '-o', 'c' and
+                        '--extract-from' will be ignored
+    --sge-option=SGE_OPTION
+                        Option for the SGE tasks created with '--create-sge-
+                        job'
+</pre>
+
+<p>A typical use of MetaClassify will be to type on the command line :</p>
+<pre>
+MetaClassify --training-set dataset.arff --scores dataset.scores.txt --output dataset.output.html --classes dataset.classes.txt
+</pre>
+
+<p>Note : if you want to embed this command line in a shell script, you can use <code>xargs</code> to clearly distinguish all the options :
+<pre>
+echo "
+  --training-set dataset.arff
+  --scores dataset.scores.txt
+  --output dataset.output.html
+  --classes dataset.classes.txt
+" | xargs MetaClassify
+</pre>  
+
+<h2>Limitations</h2>
+
+<p>MetaWeka as been made primarily to fit my own needs, which are maybe not yours. The actual limitations are :</p>
+
+<ul>
+  <li>the attributes (and the class) must be only nominals or numerics ; the strings and dates are not supported.</li>
+  <li>the way the 'compatible' classifiers are chosen ignore the potential (in)compatibility with missing values and the two-class problems ; the selection is based only on the ability to handle numeric or nominal class, and numeric, nominal or numeric+nominal attributes.</li>
+  <li>there is no advanced analysis of the results to rank the classifiers. Several approaches are possible (like those described by the <a href='http://www.metal-kdd.org/' target='_blank'>MetaL consortium</a>), but I had not time to implement them.</li>
+  <li>there is no way to precise which attribute is the class. I follow here the Weka's default behaviour (i.e. the last attribute is the class).</li>
+</ul>
+
+<h2>How To and FAQ</h2>
+
+<p><b>My classifier crash due to a lack of memory. How to ask Java to use more memory ?</b><br>By passing an option to Java using <code>-j</code> ; to request the use of 2Gb of memory for example, type <code>MetaClassify -j '-Xmx2048m' ...</code>. An other typical usage of the <code>-j</code> option is to precise the location of the <code>weka.jar</code> file (if it's not in your CLASSPATH) : <code>-j '-cp [path to weka.jar]/weka.jar'</code></p>
+
+<p><b>How to obtain the predictions instead of the performances of my classifiers ?</b><br>Weka don't allow you to obtain both information in the same time. To ask it to output the predictions instead of the performances, follow this : first, pass the ask <code>-p last</code> option to Weka. Then save this new output with the <code>--output</code> option, and ignore the 'scores' (as no score will be extracted there ; you will get some error messages from MetaClassify that you can ignore) by redirecting them to /dev/null for example. This will give something like <code>MetaClassify -w '-p last' --scores /dev/null --output predictions.html ...</code></p>
+
+<p><b>How to do a cost-sensitive learning ?</b><br>By embedding the classifiers in either <code>weka.classifiers.meta.CostSensitiveClassifier</code> or <code>weka.classifiers.meta.MetaCost</code> with the <code>--embed-in</code> option. For example, <code>MetaClassify --embed-in 'weka.classifiers.meta.CostSensitiveClassifier -C [path to the cost matrix file]' ...</code></p>
+
+<p><b>Can I use the models I saved while using a given version of Weka with an other version of Weka ?</b><br> No. Each model file is specific to the version of Weka you used to generate them.</p>
+
+<p><b>I found a bug. Are you interested ?</b> Sure ! You can send me an e-mail for any feedback at <a href='mailto:serial.null@oenone.net?subject=MetaWeka'>serial.null@oenone.net</a></p>
+
+<h2>Bonus : Feature selection</h2>
+
+<p>No, MetaClassify won't select attributes for you. But at least you can use it to have an idea of the performances obtained by all the classifiers on a new dataset with selected attributes. As I had to deal with the general problem of feature (or attribute) selection, here are some documents I found very interesting to read :</p>
+
+<ul>
+  <li>Isabelle Guyon and Andre Elisseeff. An introduction to variable and feature selection. Journal of Machine Learning Research, 2003.</li>
+  <li>Mark A. Hall and Geoffrey Holmes. Benchmarking Attribute Selection Techniques for Discrete Class Data Mining. IEEE Transactions on Knowledge and Data Engineerin, 2003</li>
+  <li>Mark A. Hall. Correlation-based Feature Selection for Machine Learning. PhD thesis, 1999</li>
+</ul>
