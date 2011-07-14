@@ -9,6 +9,8 @@ xweka
 
 - **weka-run** (formerly *MetaClassify*) run all classification or regression models compatible with a given training set, then aggregate the resulting scores into various CSV-formatted reports.
 
+- **weka-list** lists all classification and regression models compatible (and incompatible) with a given training set.
+
 Contact
 -------
 

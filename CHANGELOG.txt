@@ -1,5 +1,5 @@
 ** 1.4 (2011-07-14)
-	- Complete rewrite of MetaClassify (now named 'weka-run') using the latest version of Weka (3.7.4). Compatible schemes are now looked for thanks to a call to weka.core.FindWithCapabilities
+	- Complete rewrite of MetaClassify (now named 'weka-run') using the latest version of Weka (3.7.4). Compatible schemes are now looked for thanks to a call to weka.core.FindWithCapabilities; a stand-alone utility, 'weka-list' can be used to list those compatible schemes
 	- Addition of a stand-alone parser ('weka-parse') to extract scores from raw Weka output. Export capabilities to JSON and CSV formats
 	- Addition of table2ARFF (now named 'weka-convert'), a tab-delimited to ARFF format converter for training sets with filtering abilities
 
