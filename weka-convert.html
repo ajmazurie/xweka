@@ -1,0 +1,293 @@
+
+<h1>Tab2ARFF</h1>
+
+<p>If you're using the <a href='http://www.cs.waikato.ac.nz/ml/weka/' target='_blank'>Weka</a> machine learning toolkit, you'll agree that managing datasets in the <a href='http://www.cs.waikato.ac.nz/~ml/weka/arff.html' target='_blank'>ARFF</a> format is not easy. Adding, removing or modifying instances is easy, but doing the same on attributes is almost impossible without writing a dedicated script. The problem is that the <code>@DATA</code> section of an ARFF file can be edited under a spreadsheet software, but not the header (attributes declaration).</p>
+
+<p>A solution is to handle a fully tabular representation of these same datasets. Using a spreadsheet software (like Excel) you can merge, split, edit such tables, or generate them from your own software pipeline. Tab2ARFF will convert this tabular dataset into a valid ARFF file that Weka can handle. Additionnal filtering capabilities are also provided.</p>
+
+<h3>Changelog</h3>
+
+<ul>
+  <li><b>1.1 (2007-05-29)</b> Added: <code>--report</code> option</li>
+  <li><b>1.0 (2006-07-20)</b> Original version</li>
+</ul>
+
+<h2>1. Installation</h2>
+
+<p>Tab2ARFF is a <a href='http://www.python.org/' target='_blank'>Python</a> script designed to be used on the command line. The only requirement is to have a recent version of a Python intepreter installed on your computer.</p>
+
+<h2>2. Example of Usage</h2>
+
+<h3>Input</h3>
+
+<p>The input file is a tabular representation of a Weka dataset. Each column is an attribute, each line an instance. The first line must contains the name of the attributes, and the second their type -- either <code>NUMERIC</code>, <code>DATE</code>, <code>STRING</code> or a nominal (comma-separated values between <code>{</code> and <code>}</code>). All other lines contain values for each instance:</p>
+
+<pre>
+Name	Age	Sex	Soccer player
+	NUMERIC	{ m, f }	{ yes, no }
+Pedro	23	m	yes
+Bianca	24	f	no
+Hector	?	m	yes
+Petra		f	yes
+</pre>
+
+<p>Notes:</p>
+<ul>
+  <li>Any empty line or line starting by a '#' (comments) is ignored</li>
+  <li>Any attribute without a type ('Name', here) will not be included in the final ARFF file; this allow to append extra information in the tabular representation (like instances identifiers or annotations)</li>
+  <li>Attribute types are case-insensitive</li>
+  <li>A blank or a <code>?</code> is considered as a missing value</li>
+</ul>
+
+<h3>Output</h3>
+
+<p>The tab-delimited dataset is read either on the standard input or from a file (<code>-i</code> option). The ARFF-formated output is written either on the standard output or in a file (<code>-o</code> option).</p>
+
+<p>Typing <code>tab2arff -i dataset.txt -o dataset.arff</code> (or <code>tab2arff < dataset.txt > dataset.arff</code>) will produce:</p>
+
+<pre>
+% Generated Jul, 20 2006
+
+@RELATION "None"
+
+@ATTRIBUTE Age NUMERIC
+@ATTRIBUTE Sex { m, f }
+@ATTRIBUTE "Soccer player" { yes, no }
+
+@DATA
+23, m, yes
+24, f, no
+?, m, yes
+?, f, yes
+</pre>
+
+<p>Notes:</p>
+<ul>
+  <li>By default, all the attributes found in the input file (ie. attributes with declared type) are included in their original order</li>
+  <li>Attribute names and non-numeric values containing spaces are automatically quoted ('Soccer player' here)</li>
+</ul>
+
+<p>Additionally, information about the size of the dataset are displayed on the standard error:</p>
+
+<pre>
+:: Reading from standard input
+ 2+1 attributes, 4 instances (0 ignored, 4 total)
+</pre>
+
+<p>Meaning that the resulting ARFF file contains 2 attributes and 1 class (the class, as determined by the ARFF format, is by default the last attribute declared), 4 instances, none of them having been filtered. These values can be stored in an external text file using the <code>--report</code> option (see below).</p>
+
+<h2>3. Advanced Usage</h2>
+
+<h3>Options</h3>
+
+<p>The options of Tab2ARFF are accessible by typing <code>tab2arff --help</code> on the command line:</p>
+
+<pre>
+Usage: tab2arff [options]
+
+Options:
+  --version             show program's version number and exit
+  -h, --help            show this help message and exit
+
+  options for the input:
+    -i INPUT_FILENAME, --input=INPUT_FILENAME
+                        Tab-delimited input file containing the dataset to
+                        convert to an ARFF file. The first line must contains
+                        the name of the attributes, the second one their type
+                        (or empty character for non-eligible attributes), then
+                        the data (default: reading on stdin)
+    --indices=ATTRIBUTE_INDICES
+                        Comma-separated list of attributes to include,
+                        designated by their indices in the input file
+                        (starting from 1 for the first attribute). A range of
+                        attributes can be provided, as well as name for
+                        attributes' groups between parenthesis. Example:
+                        --indices "(My attributes)1-10,(My class)11". If
+                        neither '--indices' or '--names' is provided, all the
+                        eligible attributes from the input are included in the
+                        ARFF file.
+    --names=ATTRIBUTE_NAMES
+                        Filename containing a list of the attributes to
+                        include, designated by their exact name in the input
+                        (case sensitive, one name per line). A name for
+                        attributes' groups can be provided by inserting a line
+                        with this name preceded by a ':' character
+
+  options for the output:
+    -l, --list-attributes
+                        Display a list of the eligible attributes and their
+                        indices, then quit
+    -o OUTPUT_FILENAME, --output=OUTPUT_FILENAME
+                        Output ARFF file (default: stdout)
+    --relation-name=RELATION_NAME
+                        Name of the dataset (default: input filename or None)
+    -A, --allow-instances-without-attributes
+                        Allow instances to have all their attributes missing
+                        (by default, these instances are automatically
+                        filtered
+    -C, --allow-instances-without-class
+                        Allow instances to have their class missing (by
+                        default, these instances are automatically filtered
+    -R, --remove-empty-attributes
+                        If set, all attribute having no value in all the
+                        instances is removed.
+    --report=REPORT_FILENAME
+                        Write in a file the final dimensions of the dataset
+                        (number of instances and attributes)
+</pre>
+
+<h3>Selecting attributes</h3>
+
+<p>The first important feature of Tab2ARFF is to let you select any subset of attributes you want to make your ARFF file. This let you the possibility, if you have several classes for example, to create a unique tabular dataset (easy to manage) and be able to create several distinct ARFF files, just changing the attribute designated to be the class.</p>
+
+<p>You have two ways to give the list of attributes to include (if you precise nothing, all the attributes are included in the order they have in the tabular dataset):</p>
+
+<ul>
+  <li><b>by name</b> You can simply give the exact name of the attributes to include, in the order you want them, by storing these names in an additional text file. Use the option <code>--names</code> to read this file (empty lines or lines starting by a '#' are ignored). You have the possibility to add 'section' names by typing a name prefixed by ':'. This can be useful if you have numerous attributes and want to somehow visually group them in the final ARFF file. An example of such a list of attributes (e.g., stored in 'list.txt') would be:
+
+<pre>
+:Attributes
+Age
+Sex
+
+:Class
+Soccer player
+</pre>
+
+Typing <code>tab2arff --names list.txt < dataset.txt > dataset.arff</code> you'll then obtain:
+
+<pre>
+% Generated Jul, 20 2006
+
+@RELATION "None"
+
+% Attributes
+@ATTRIBUTE Age NUMERIC
+@ATTRIBUTE Sex { m, f }
+
+% Class
+@ATTRIBUTE "Soccer player" { yes, no }
+
+@DATA
+23, m, yes
+24, f, no
+?, m, yes
+?, f, yes
+</pre>
+
+Well, this example is not very striking (we're basically selecting the very same set of attributes than the one by default), but you got the idea.</li>
+
+  <li><b>by indices</b> This is a little bit more trickier. Each attribute and field in your tabular dataset have a <i>column indice</i>, starting from 1. For example, the attributes <code>Age</code> and <code>Sex</code> have the indices 2 and 3, respectively. You can use these values to select attributes as well, using the <code>--indices</code> option. In order to obtain the ARFF output of the 'Simple usage' section above, you then could have typed <code>tab2arff --indices 2,3,4 < dataset.txt > dataset.arff</code>, and obtained the same result. As previously, you can add section names, by using parenthesis. This would give, as in the last example, <code>tab2arff --indices "(Attributes)2,3,(Class)4" ...</code>.<br>
+The main interest of the indices is to be able to use ranges. When you have a list of consecutive attributes to include, just declare the two bounds. Here for example, we could have typed <code>tab2arff --indices 2-4 ...</code><br>
+The only thing to remember when using indices is that if you have, in your tabular dataset, a non-attribute field (like <code>Name</code> here) have a column indice itself. That's why <code>Age</code>, which is the first attribute in the resulting ARFF file, have an indice of 2 and not of 1, being declared after <code>Name</code> in the tabular dataset. Using 1 as an indice will result in an error, as this field is not a valid attribute:
+<pre>
+~ % tab2arff --indices 1 < dataset.txt
+
+:: Reading from standard input
+ Error: invalid column index #1
+</pre>
+
+If you want a list of all the valid attributes in a given tabular dataset, along with their indices, you can use the <code>--list-attributes</code> option:
+<pre>
+~ % tab2arff --list-attributes < dataset.txt
+
+:: Reading from standard input
+# Column index  Name    Type
+2       Age     NUMERIC
+3       Sex     { m, f }
+4       "Soccer player" { yes, no }
+</pre></li>
+</ul>
+
+<h3>Filtering the attributes and instances</h3>
+
+<p>The second main feature of Tab2ARFF is to allow you to filter for missing informations. There is basically three types; the filtering can be switched on or off by using the corresponding options:</p>
+
+<ul>
+  <li><b>instances that have no class</b> An instance can have a value for its attributes, but not for its class. By default, such instances are filtered (i.e. not included in the resulting ARFF output). If you want to include them, use the <code>--allow-instances-without-class</code> option.</li>
+  <li><b>instances that have no attributes</b> An instance can have a class, but no value at all for all of its attributes. Again, these instances are by default filtered. You can force their inclusion by using <code>--allow-instances-without-attributes</code>.</li>
+  <li><b>attributes that have no value</b> Some attributes can have a missing value for all the instances in the dataset. By default, these attributes are kept. If you want them to be excluded from the ARFF output, use the <code>--remove-empty-attributes</code> option.</li>
+</ul>
+
+<p><b>Example</b> Consider the following dataset:</p>
+
+<pre>
+Dummy	Attribute1	Attribute2	Attribute3	Class
+	NUMERIC	NUMERIC	NUMERIC	NUMERIC
+a	1	?	2	?
+b	2	?	3
+c	?	?	?	4
+d	?	?	?
+e	?	?	?	5
+f	6	?	7	8
+</pre>
+
+<p>Launching Tab2ARFF with default filtering options will result into the following output:</p>
+<pre>
+% Generated Jul, 20 2006
+
+@RELATION "None"
+
+@ATTRIBUTE Attribute1 NUMERIC
+@ATTRIBUTE Attribute2 NUMERIC
+@ATTRIBUTE Attribute3 NUMERIC
+@ATTRIBUTE Class NUMERIC
+
+@DATA
+6, ?, 7, 8
+</pre>
+
+<p>... and the following information:</p>
+<pre>
+:: Reading from standard input
+ Skipping instance #1 (no class)
+   data: "a, 1, ?, 2, ?"
+ Skipping instance #2 (no class)
+   data: "b, 2, ?, 3"
+ Skipping instance #3 (no attributes)
+   data: "c, ?, ?, ?, 4"
+ Skipping instance #4 (no class)
+   data: "d, ?, ?, ?"
+ Skipping instance #5 (no attributes)
+   data: "e, ?, ?, ?, 5"
+ 3+1 attributes, 1 instances (5 ignored, 6 total)
+</pre>
+
+<p>Here the dataset contains a lot of missing informations, which are detailed: 5 out of 6 instances have been excluded. If you want to force Tab2ARFF to keep instances with no class, but eliminate attributes that have no value for all the instances (here, <code>Attribute2</code>), then type: <code>tab2arff --allow-instances-without-class --remove-empty-attributes ...</code>, which will produce:</p>
+
+<pre>
+% Generated Jul, 20 2006
+
+@RELATION "None"
+
+@ATTRIBUTE Attribute1 NUMERIC
+@ATTRIBUTE Attribute3 NUMERIC
+@ATTRIBUTE Class NUMERIC
+
+@DATA
+1, 2, ?
+2, 3, ?
+6, 7, 8
+</pre>
+
+... with the associated output:
+
+<pre>
+:: Reading from standard input
+ Removing empty attributes: 1 to remove
+   Attribute2
+ Skipping instance #3 (no attributes)
+   data: "c, ?, ?, ?, 4"
+ Skipping instance #4 (no attributes)
+   data: "d, ?, ?, ?"
+ Skipping instance #5 (no attributes)
+   data: "e, ?, ?, ?, 5"
+ 2+1 attributes, 3 instances (3 ignored, 6 total)
+</pre>
+
+<p>Enjoy !</p>
+
+<h2>4. Future work</h2>
+
+<p>Tab2ARFF fit for now all my needs, but they're maybe not yours. You're free to modify this small script for your need. One interesting thing I could do one day if I really need it is to write the opposite tool, able to parse an ARFF file to transform it into a tabular dataset. If somebody is interested, I could write this relatively easily.</p>
+

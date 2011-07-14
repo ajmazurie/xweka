@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+
+import optparse, sys, os
+import xweka
+
+p = optparse.OptionParser(description = """weka-list: List all WEKA
+classification and regression models compatible with a provided ARFF-formatted
+dataset""")
+
+p.add_option("-i", "--input", dest = "i_fn", metavar = "FILENAME",
+	help = "ARFF-formated input training set")
+
+p.add_option("-c", "--compatible-list", dest = "compatible_fn", metavar = "FILENAME",
+	help = "Filename to write the list of compatible schemes in (default: standard output)")
+
+p.add_option("-u", "--uncompatible-list", dest = "uncompatible_fn", metavar = "FILENAME",
+	help = "Filename to write the list of uncompatible schemes in (default: ignored)")
+
+p.add_option("--version", dest = "display_version", action = "store_true", default = False,
+	help = "Display the version number and exit")
+
+(p, a) = p.parse_args()
+
+if (p.display_version):
+	print xweka.version
+	sys.exit(0)
+
+def error (msg):
+	print >>sys.stderr, "ERROR: %s" % msg
+	sys.exit(1)
+
+if (not p.i_fn):
+	error("An input file is required.")
+
+if (not os.path.exists(p.i_fn)):
+	error("File '%s' not found." % p.i_fn)
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+compatible, uncompatible = xweka.find_compatible_schemes(p.i_fn)
+
+if (p.compatible_fn):
+	o = open(p.compatible_fn, 'w')
+	for scheme in compatible:
+		print >>o, scheme
+
+else:
+	for scheme in compatible:
+		print scheme
+
+if (p.uncompatible_fn):
+	o = open(p.uncompatible_fn, 'w')
+	for scheme in uncompatible:
+		print >>o, scheme

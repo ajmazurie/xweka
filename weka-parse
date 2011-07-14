@@ -1,0 +1,107 @@
+#!/usr/bin/env python
+
+import optparse, sys, os, json
+import xweka
+
+p = optparse.OptionParser(description = """weka-parse: Parser for the raw
+output of WEKA classification and regression models""")
+
+g = optparse.OptionGroup(p, "input")
+
+g.add_option("-i", "--input", dest = "i_fn", metavar = "FILENAME",
+	help = "Location of the WEKA raw output (default: standard input)")
+
+p.add_option_group(g)
+
+g = optparse.OptionGroup(p, "output")
+
+g.add_option("--scores", dest = "o_fn", metavar = "FILENAME",
+	help = "Filename to write classification or regression scores in (default: standard output)")
+
+g.add_option("--accuracy-by-class", dest = "accuracy_fn", metavar = "FILENAME",
+	help = "Filename to write accuracy by class scores in (default: ignored)")
+
+g.add_option("--confusion-matrix", dest = "matrix_fn", metavar = "FILENAME",
+	help = "Filename to write confusion matrix in (default: ignored)")
+
+g.add_option("--as-json", dest = "json_fn", metavar = "FILENAME",
+	help = "Filename to write the parse output as a JSON object")
+
+p.add_option_group(g)
+
+g = optparse.OptionGroup(p, "additional options")
+
+g.add_option("--version", dest = "display_version", action = "store_true", default = False,
+	help = "Display the version number and exit")
+
+p.add_option_group(g)
+
+(p, a) = p.parse_args()
+
+if (p.display_version):
+	print xweka.version
+	sys.exit(0)
+
+if (p.i_fn):
+	if (not os.path.exists(p.i_fn)):
+		error("File '%s' not found." % p.i_fn)
+
+	i_fh = open(p.i_fn, 'rU')
+else:
+	i_fh = sys.stdin
+
+if (p.o_fn):
+	o_fh = open(p.o_fn, 'w')
+else:
+	o_fh = sys.stdout
+
+if (p.accuracy_fn):
+	accuracy_fh = open(p.accuracy_fn, 'w')
+	accuracy_fh_has_header = False
+
+if (p.matrix_fn):
+	matrix_fh = open(p.matrix_fn, 'w')
+	matrix_fh_has_header = False
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+raw = []
+while True:
+	line = i_fh.readline()
+	if (line == ''):
+		break
+
+	raw.append(line)
+
+results = xweka.parse_WEKA_results(''.join(raw))
+
+if (p.json_fn):
+	o = open(p.json_fn, 'w')
+	json.dump(results, o)
+
+def sorteditems (dict):
+	for key in sorted(dict):
+		yield key, dict[key]
+
+print >>o_fh, "Target	Score	Value"
+
+for performance_on in sorted(results):
+	for score, value in sorteditems(results[performance_on]["scores"]):
+		print >>o_fh, "%s	%s	%s" % (performance_on, score, value)
+
+	if (p.accuracy_fn) and ("accuracy by class" in results[performance_on]):
+		if (not accuracy_fh_has_header):
+			print >>accuracy_fh, "Target	Class	Score	Value"
+			accuracy_fh_has_header = True
+
+		for class_name in sorted(results[performance_on]["accuracy by class"]):
+			for score, value in sorteditems(results[performance_on]["accuracy by class"][class_name]):
+				print >>accuracy_fh, "%s	%s	%s	%s" % (performance_on, class_name, score, value)
+
+	if (p.matrix_fn) and ("confusion matrix" in results[performance_on]):
+		if (not matrix_fh_has_header):
+			print >>matrix_fh, "Target	Known class	Predicted class	Count"
+			matrix_fh_has_header = True
+
+		for (known_class, predicted_class), count in sorteditems(results[performance_on]["confusion matrix"]):
+			print >>matrix_fh, "%s	%s	%s	%s" % (performance_on, known_class, predicted_class, count)

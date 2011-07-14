@@ -1,0 +1,382 @@
+#!/usr/bin/env python
+
+# Convertion of a TAB-delimited dataset into an ARFF-formated one
+#
+# Format of the input file:
+#	- first line: list of attributes names
+#	- second line: corresponding type, or empty character is the attribute is
+#	  not eligible for the ARFF output. Either 'numeric', 'date', 'string', or
+#	  a list of comma-separated values between { } for nominal attributes (in
+#	  this case the values must be quoted if containing spaces)
+#	- remaining: values
+# (all line starting with '#' is ignored)
+#
+# Example:
+#	Dummy	Attribute1	Attribute2
+#		NUMERIC	{ Yes, No }
+#	eiaea	0.123	Yes
+#	aqwet	0.542	No
+#	...
+
+import os, sys, optparse, re
+
+p = optparse.OptionParser(description = """weka-convert: Convertion of tab-
+delimited datasets into ARFF format""")
+
+g = optparse.OptionGroup(p, "input")
+
+g.add_option("-i", "--input", dest = "input_filename",
+  help = """Tab-delimited input file containing the dataset to convert to an
+ARFF file. The first line must contains the name of the attributes, the second
+one their type (or empty character for non-eligible attributes), then the data
+(default: reading on stdin)""")
+
+g.add_option("--indices", dest = "attribute_indices",
+  help = """Comma-separated list of attributes to include, designated by their
+indices in the input file (starting from 1 for the first attribute). A range
+of attributes can be provided, as well as name for attributes' groups between
+parenthesis. Example: --indices "(My attributes)1-10,(My class)11". If neither
+'--indices' or '--names' is provided, all the eligible attributes from the
+input are included in the ARFF file.""")
+
+g.add_option("--names", dest = "attribute_names",
+  help = """Filename containing a list of the attributes to include, designated
+by their exact name in the input (case sensitive, one name per line). A name
+for attributes' groups can be provided by inserting a line with this name
+preceded by a ':' character""")
+
+p.add_option_group(g)
+
+g = optparse.OptionGroup(p, "output")
+
+g.add_option("-l", "--list-attributes",
+  dest = "list_attributes", action = "store_true", default = False,
+  help = "Display a list of the eligible attributes and their indices, then quit")
+
+g.add_option("-o", "--output", dest = "output_filename",
+  help = "Output ARFF file (default: stdout)")
+
+g.add_option("--relation-name", dest = "relation_name",
+  help = "Name of the dataset (default: input filename or None)")
+
+g.add_option("-A", "--allow-instances-without-attributes",
+  dest = "remove_instances_without_attributes", action = "store_false", default = True,
+  help = """Allow instances to have all their attributes missing (by default,
+these instances are automatically filtered)""")
+
+g.add_option("-C", "--allow-instances-without-class",
+  dest = "remove_instances_without_class", action = "store_false", default = True,
+  help = """Allow instances to have their class missing (by default, these
+instances are automatically filtered)""")
+
+g.add_option("-R", "--remove-empty-attributes",
+  dest = "remove_empty_attributes", action = "store_true", default = False,
+  help = "If set, any attribute having no value in all the instances is removed.")
+
+g.add_option("--report", dest = "report_filename",
+  help = """Write in a file the final dimensions of the dataset (number of
+instances and attributes)""")
+
+p.add_option_group(g)
+
+(p, a) = p.parse_args()
+
+def error (msg):
+	print >>sys.stderr, "ERROR: %s" % msg
+	sys.exit(1)
+
+if (p.input_filename):
+	if (not os.path.exists(p.input_filename)):
+		error("File %s not found" % p.input_filename)
+
+	input = open(p.input_filename, 'r')
+	print >>sys.stderr, "\n:: Input file: %s" % p.input_filename
+else:
+	input = sys.stdin
+	print >>sys.stderr, "\n:: Reading from standard input"
+
+if (not p.relation_name):
+	if (p.input_filename):
+		p.relation_name = p.input_filename
+	else:
+		p.relation_name = "None"
+
+if (p.attribute_names):
+	if (not os.path.exists(p.attribute_names)):
+		print >>sys.stderr, " Error: Attributes list file not found."
+		print >>sys.stderr, " (path is '%s')" % p.attribute_names
+		sys.exit(1)
+
+if (p.report_filename):
+	p.report_filename = open(p.report_filename, 'a')
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: input
+
+class Reader:
+	def __init__ (self, stream):
+		self.source = stream
+
+	def __iter__ (self):
+		return self
+
+	def next (self):
+		while True:
+			line = self.source.readline()
+
+			if (line == ''):
+				self.source.close()
+				raise StopIteration
+
+			line = line.rstrip().lstrip(' ')
+
+			if (line == '') or (line[0] == '#'):
+				continue
+
+			return line.split('	')
+
+# List all the eligible attributes from the input
+eligible_attributes = []
+eligible_indices = {}
+eligible_names = {}
+
+i = Reader(input)
+
+attributes_names = i.next()
+attributes_types = i.next()
+
+for (column, attribute_name) in enumerate(attributes_names):
+
+	# ignore the attributes having no type
+	if (column >= len(attributes_types)) or (attributes_types[column] == ''):
+		continue
+
+	# protect attributes names, if needed
+	if (' ' in attribute_name) and (attribute_name[0] != '"'):
+		attribute_name = '"' + attribute_name + '"'
+
+	# check the attribute type
+	attribute_type = attributes_types[column]
+	if (attribute_type.upper() in ("NUMERIC", "DATE", "STRING")):
+		attribute_type = attribute_type.upper()
+
+	elif (attribute_type[0] != '{'):
+		print >>sys.stderr, " Error: invalid attribute type for %s: '%s'" % (attribute_name, attribute_type)
+		sys.exit(1)
+
+	if (attribute_name in eligible_names):
+		print >>sys.stderr, " Error: the name '%s' have already been used for an attribute" % attribute_name
+		sys.exit(1)
+
+	# register the attribute
+	eligible_attributes.append((attribute_name, attribute_type, column + 1))
+
+	eligible_indices[column + 1] = len(eligible_attributes) - 1
+	eligible_names[attribute_name.strip('"')] = len(eligible_attributes) - 1
+
+# If wanted, display these eligible attributes then quit
+if (p.list_attributes):
+	print "# Column index	Name	Type"
+
+	for (_name, _type, column) in eligible_attributes:
+		print "%s	%s	%s" % (column, _name, _type)
+		
+	sys.exit(0)
+
+# Attributes user-selection
+if (p.attribute_indices):
+	indices, selected_attributes = [], []
+
+	ITEM = re.compile("(?:\((.*?)\))?([0-9]+)(?:-([0-9]+))?")
+
+	for (title, start, end) in ITEM.findall(p.attribute_indices):
+		if (title != ''):
+			indices.append(title)
+
+		if (end == ''):
+			indices.append(int(start))
+		else:
+			indices.extend(range(int(start), int(end) + 1))
+
+	for index in indices:
+		if (type(index) == str): # section name
+			selected_attributes.append(index)
+			continue
+
+		if (not index in eligible_indices):
+			print >>sys.stderr, "ERROR: invalid column index #%s" % index
+			sys.exit(1)
+
+		selected_attributes.append(eligible_attributes[eligible_indices[index]])
+
+elif (p.attribute_names):
+	names, selected_attributes = [], []
+	src = open(p.attribute_names, 'r')
+
+	for data in Reader(src):
+		name = data[0]
+
+		if (name[0] == ':'): # section name
+			selected_attributes.append(name[1:].lstrip())
+			continue
+
+		if (not name in eligible_names):
+			print >>sys.stderr, "WARNING: unknown attribute '%s'" % name
+
+		else:
+			selected_attributes.append(eligible_attributes[eligible_names[name]])
+
+else:
+	selected_attributes = eligible_attributes
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# Convert a list of attributes (3-tuples) into a list of column indices
+def attributes2indices (attributes):
+	a2i, i2a = [], {}
+
+	# we skip the fake entries corresponding to section names
+	attributes = filter(lambda x: type(x) == tuple, attributes) 
+
+	# then we return the column indice (starting to 0)
+	for (n, t, c) in attributes:
+		a2i.append(c - 1)
+		i2a[c - 1] = (n, t, c)
+
+	return a2i, i2a
+
+# Extract the value at the given column indice for the current instances data
+# If the value is missing, a '?' is returned. If the value is a nominal with
+# at least one whitespace, the value is double-quoted.
+def extract (data, index):
+	if (index >= len(data)):
+		return '?'
+
+	value = data[index]
+
+	if (value == ''):
+		return '?'
+
+	if (' ' in value) and (value[0] != '"'):
+		value = '"' + value + '"'
+
+	return value
+
+#::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: output
+
+selected_indices, indice2attribute = attributes2indices(selected_attributes)
+
+# Look for empty attributes (if asked)
+empty_indices = {}
+
+if (p.remove_empty_attributes):
+	print >>sys.stderr, " Removing empty attributes:",
+
+	# load the whole input dataset in memory
+	i = [data for data in i]
+
+	# identify the empty attributes
+	candidate = {}
+
+	for data in i:
+		for c in selected_indices:
+			if (extract(data, c) != '?'):
+				candidate[c] = False
+
+	for c in selected_indices:
+		if candidate.get(c, True):
+			empty_indices[c] = True
+
+	print >>sys.stderr, "%s to remove" % len(empty_indices)
+
+	empty_attributes = [indice2attribute[c] for c in empty_indices]
+
+	empty_attributes_names = [n for (n, t, c) in empty_attributes]
+	empty_attributes_names.sort()
+
+	for attribute in empty_attributes_names:
+		print >>sys.stderr, "   %s" % attribute
+
+	# modify the 'selected_attributes' list
+	selected_attributes = filter(lambda x: x not in empty_attributes, selected_attributes)
+
+	selected_indices, indice2attribute = attributes2indices(selected_attributes)
+
+# Generate the ARFF header
+if (p.output_filename):
+	o = open(p.output_filename, 'w')
+else:
+	o = sys.stdout
+
+from time import strftime, localtime
+
+print >>o, "%% Generated %s\n" % strftime("%b, %d %Y", localtime())
+print >>o, "@RELATION \"%s\"\n" % p.relation_name
+
+first = True
+for entry in selected_attributes:
+
+	# Section name
+	if (type(entry) == str):
+		if (not first):
+			print >>o
+
+		if (entry != ' '):
+			print >>o, "%% %s" % entry
+
+	# Attribute
+	else:
+		attribute_name, attribute_type, index = entry
+		print >>o, "@ATTRIBUTE %s %s" % (attribute_name, attribute_type)
+
+	first = False
+
+# Generating the ARFF data section
+print >>o, "\n@DATA"
+
+count, total = 0, 0
+
+def dump_instance (data, limit = 5):
+	if (len(data) > limit):
+		return "\"%s ...\"" % ", ".join(data[:limit])
+	else:
+		return "\"%s\"" % ", ".join(data)
+
+# printing the data
+for data in i:
+	values = [extract(data, c) for c in selected_indices]
+	total += 1
+
+	# looking for orphans
+	is_orphan_attributes = (values[-1] == '?')
+
+	if (is_orphan_attributes and p.remove_instances_without_class):
+		print >>sys.stderr, " Skipping instance #%s (no class)" % total
+		print >>sys.stderr, "   data: %s" % dump_instance(data)
+		continue
+
+	is_orphan_class = True
+	for value in values[:-1]:
+		if (value != '?'):
+			is_orphan_class = False
+
+	if (is_orphan_class and p.remove_instances_without_attributes):
+		print >>sys.stderr, " Skipping instance #%s (no attributes)" % total
+		print >>sys.stderr, "   data: %s" % dump_instance(data)
+		continue
+
+	# printing values
+	print >>o, ', '.join(values)
+
+	count += 1
+
+print >>sys.stderr, " %s+1 attributes, %s instances (%s ignored, %s total)" % (
+  len(selected_indices) - 1, count, total - count, total
+ )
+
+if (p.report_filename):
+	print >>p.report_filename, "# Dataset	Attributes	Instances	Ignored"
+	print >>p.report_filename, "%s	%s	%s	%s" % (
+	  p.relation_name, len(selected_indices), count, total - count,
+	 )
+
+o.close()

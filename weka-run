@@ -1,0 +1,384 @@
+#!/usr/bin/env python
+
+# weka-run: launch all scheme compatible with a given dataset
+# and retrieve the results of the classification or regression
+
+import optparse, sys, os
+import subprocess, time, csv
+import xweka
+
+p = optparse.OptionParser(description = """weka-run: Run all WEKA classification
+and regression models compatible with a given training set, and collect the
+resulting scores""")
+
+g = optparse.OptionGroup(p, "input")
+
+g.add_option("-t", "--training-set", dest = "training_set_fn", metavar = "FILENAME",
+  help = "ARFF-formated training dataset (mandatory)")
+
+g.add_option("-T", "--test-set", dest = "test_set_fn", metavar = "FILENAME",
+  help = """ARFF-formated test dataset. If not test dataset is provided, a
+cross-validation will be performed""")
+
+p.add_option_group(g)
+
+g = optparse.OptionGroup(p, "classifiers")
+
+g.add_option("--exclude", dest = "excluded_classifiers", action = "append", metavar = "CLASS",
+  help = "Exclude this classifier; this option can be used multiple times")
+
+g.add_option("--exclude-from", dest = "excluded_classifiers_fn", metavar = "FILENAME",
+  help = "Exclude the classifiers declared in this text file (one classifier per line)")
+
+g.add_option("--only", dest = "exclusive_classifiers", action = "append", metavar = "CLASS",
+  help = "Only use this classifier; this option can be used multiple times")
+
+g.add_option("--only-from", dest = "exclusive_classifiers_fn", metavar = "FILENAME",
+  help = "Only use the classifiers declared in this text file (one classifier per line)")
+
+p.add_option_group(g)
+
+g = optparse.OptionGroup(p, "output")
+
+g.add_option("-o", "--output", dest = "weka_raw_output_fn", metavar = "FILENAME",
+  help = "Output file for the raw outputs from WEKA classifiers (HTML format)")
+
+g.add_option("-p", "--performances", dest = "weka_performances_output_fn", metavar = "FILENAME",
+  help = "Output file for the performances per model (CSV format)")
+
+g.add_option("-c", "--classes", dest = "weka_per_classes_performances_output_fn", metavar = "FILENAME",
+  help = "Output file for the performances per class (classification schemes only; CSV format)")
+
+p.add_option_group(g)
+
+g = optparse.OptionGroup(p, "additional options")
+
+g.add_option("--java-executable", dest = "java_executable", default = "java",
+  help = "Path to the Java interpreter (default: '%default')")
+
+g.add_option("-j", "--java-option", dest = "java_options", action = "append",
+  help = "Option for the Java interpreter; this option can be used multiple times")
+
+g.add_option("-w", "--weka-option", dest = "weka_options", action = "append",
+  help = "Option for the WEKA toolkit; this option can be used multiple times")
+
+g.add_option("-q", "--quick-exit", dest = "quick_exit", action = "store_true", default = False,
+  help = """If set, quit the program when pressing Control-C (instead of just
+skipping the current running classifier)""")
+
+g.add_option("--version", dest = "display_version", action = "store_true", default = False,
+	help = "Display the version number and exit")
+
+g.add_option("--debug", dest = "debug", action = "store_true", default = False,
+	help = "If set, display additional debugging information")
+
+p.add_option_group(g)
+
+(p, a) = p.parse_args()
+
+if (p.display_version):
+	print xweka.version
+	sys.exit(0)
+
+def error (msg):
+	print >>sys.stderr, "ERROR: %s" % msg
+	sys.exit(1)
+
+def perror (msg):
+	error("%s.\n Use '--help' for options" % msg)
+
+if (not p.training_set_fn):
+	error("A training set must be provided.")
+
+if (not os.path.exists(p.training_set_fn)):
+	error("File '%s' not found." % p.training_set_fn)
+
+if (p.test_set_fn) and (not os.path.exists(p.test_set_fn)):
+	error("File '%s' not found." % p.test_set_fn)
+
+if (not p.weka_raw_output_fn) and \
+	(not p.weka_performances_output_fn) and \
+	(not p.weka_per_classes_performances_output_fn):
+	error("No output file was provided.")
+
+classifiers_black_list = {}
+classifiers_white_list = {}
+
+def read (fn):
+	o = open(fn, 'rU')
+	while True:
+		line = o.readline()
+		if (line == ''):
+			break
+		line = line.strip()
+		if (line == ''):
+			continue
+		yield line
+	o.close()
+
+if (p.excluded_classifiers):
+	for clazz in p.excluded_classifiers:
+		classifiers_black_list[clazz.lower()] = True
+
+if (p.excluded_classifiers_fn):
+	if (not os.path.exists(p.excluded_classifiers_fn)):
+		error("File '%s' not found." % p.excluded_classifiers_fn)
+
+	for clazz in read(p.excluded_classifiers_fn):
+		classifiers_black_list[clazz.lower()] = True
+
+if (p.exclusive_classifiers):
+	for clazz in p.exclusive_classifiers:
+		classifiers_white_list[clazz.lower()] = True
+
+if (p.exclusive_classifiers_fn):
+	if (not os.path.exists(p.exclusive_classifiers_fn)):
+		error("File '%s' not found." % p.exclusive_classifiers_fn)
+
+	for clazz in read(p.exclusive_classifiers_fn):
+		classifiers_white_list[clazz.lower()] = True
+
+for clazz in sorted(classifiers_black_list) + sorted(classifiers_white_list):
+	if (not clazz.startswith("weka.classifiers.")):
+		error("Invalid class '%s'" % clazz)
+
+# building the Java call command line
+java_cmd = p.java_executable
+
+if (p.java_options):
+	for option in p.java_options:
+		java_cmd += ' ' + option
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+print "weka-run %s\n" % xweka.version
+
+if (p.debug):
+	print "** java command: %s" % java_cmd
+
+print "training set: %s" % p.training_set_fn
+
+if (p.test_set_fn):
+	print "test set: %s" % p.test_set_fn
+else:
+	print "test set: none (cross-validation)"
+
+accepted, rejected = xweka.find_compatible_schemes(p.training_set_fn, java_cmd)
+accepted_, rejected_ = {}, {}
+
+for clazz in accepted:
+	clazz_ = clazz.lower()
+
+	if (clazz_ in classifiers_black_list):
+		rejected_[clazz] = "%s (compatible but excluded by user)" % clazz
+		continue
+
+	if (len(classifiers_white_list) > 0) and (clazz_ not in classifiers_white_list):
+		rejected_[clazz] = "%s (compatible but excluded by user)" % clazz
+		continue
+
+	accepted_[clazz] = clazz
+
+for clazz in rejected:
+	clazz_ = clazz.lower()
+
+	if (clazz_ in classifiers_black_list):
+		rejected_[clazz] = "%s (uncompatible and excluded by user)" % clazz
+		continue
+
+	if (len(classifiers_white_list) > 0) and (clazz_ not in classifiers_white_list):
+		rejected_[clazz] = "%s (uncompatible and excluded by user)" % clazz
+		continue
+
+	if (clazz_ in classifiers_white_list):
+		rejected_[clazz] = "%s (uncompatible despite being requested by user)" % clazz
+		continue
+
+	rejected_[clazz] = clazz
+
+del accepted, rejected
+
+if (len(accepted_) == 0):
+	error("No classifier was selected.")
+
+print "\naccepted classifiers: %s" % len(accepted_)
+
+for clazz in sorted(accepted_):
+	print "  %s" % accepted_[clazz]
+
+print "\nrejected classifiers: %s" % len(rejected_)
+
+for clazz in sorted(rejected_):
+	print "  %s" % rejected_[clazz]
+
+accepted_ = sorted(accepted_)
+del rejected_
+
+# building the WEKA call command line
+weka_options = ["-i"]
+
+if (p.test_set_fn):
+	weka_options.append("-T %s" % p.test_set_fn)
+
+if (p.weka_options):
+	weka_options.extend(p.weka_options)
+
+def build_weka_cmd (clazz):
+	weka_cmd = "%s -t %s" % (clazz, p.training_set_fn)
+	return java_cmd + ' ' + weka_cmd + ' ' + ' '.join(weka_options)
+
+def run_weka_cmd (cmd):
+	try:
+		process = subprocess.Popen(
+			cmd, shell = True,
+			bufsize = 1,
+			stdout = subprocess.PIPE,
+			stderr = subprocess.PIPE,
+			close_fds = True
+		)
+
+		stdout, stderr = process.communicate()
+
+		if (stdout == ''):
+			raise Exception("No result returned")
+
+		return stdout
+
+	except KeyboardInterrupt:
+		if (p.quick_exit):
+			print "[exiting]"
+			sys.exit(0)
+		else:
+			print "[skipping]"
+			return None
+
+	except Exception, msg:
+		print "WARNING: %s" % msg
+		return None
+
+print "\nrunning ..."
+
+if (p.weka_raw_output_fn):
+	o_fh = open(p.weka_raw_output_fn, 'w')
+	print >>o_fh, """
+<style type='text/css'>
+	BODY {
+		font-family: lucida grande, sans-serif;
+		font-size: 11pt;
+	}
+	CODE {
+		font-family: Monaco, "Courier New", Courier, monospace;
+		color: #111;
+		font-size: 10pt;
+	}
+	PRE {
+		font-family: Monaco, "Courier New", Courier, monospace;
+		font-size: 10pt;
+		border: 1px solid #aaa;
+		background-color: #f5f5f5;
+		padding: 10px;
+		-webkit-border-radius: 8px;
+		-moz-border-radius: 8px;	
+	}
+</style>
+
+<h2>weka-run %s</h2>""" % xweka.version
+
+	if (p.training_set_fn):
+		print >>o_fh, "<p>Training set: <code>%s</code></p>" % p.training_set_fn
+
+	if (p.test_set_fn):
+		print >>o_fh, "<p>Test set: <code>%s</code></p>" % p.test_set_fn
+	else:
+		print >>o_fh, "<p>Test set: None (cross-validation)</p>"
+
+	print >>o_fh, "<p>Classifiers:</p>"
+	print >>o_fh, "<ul>"
+
+	for clazz in accepted_:
+		print >>o_fh, "	<li><a href='#%s'>%s</a></li>" % (clazz.lower().replace('.', '_'), clazz)
+
+	print >>o_fh, "</ul>"
+
+if (p.weka_performances_output_fn):
+	p_fh = open(p.weka_performances_output_fn, 'w')
+	p_f = csv.writer(p_fh)
+	p_f.writerow(("classifier", "score", "target", "value"))
+
+if (p.weka_per_classes_performances_output_fn):
+	c_fh = open(p.weka_per_classes_performances_output_fn, 'w')
+	c_f = csv.writer(c_fh)
+	c_f.writerow(("classifier", "class", "score", "target", "value"))
+
+def sorteditems (dict):
+	for key in sorted(dict):
+		yield key, dict[key]
+
+for clazz in accepted_:
+	print "  %s" % clazz
+
+	cmd = build_weka_cmd(clazz)
+
+	if (p.debug):
+		print "** weka command: %s" % cmd
+
+	tick = time.time()
+	output = run_weka_cmd(cmd)
+	run_time = "%.3f" % (time.time() - tick)
+
+	if (output == None):
+		continue
+
+	if (p.weka_raw_output_fn):
+		print >>o_fh, """
+<hr>
+<h3 id='%s'>%s</h3>
+
+<p>Command: <code>%s</code></p>
+
+<pre>
+%s
+</pre>
+""" % (
+			clazz.lower().replace('.', '_'),
+			clazz,
+			cmd,
+			output.replace('<', "&lt;").replace('>', "&gt;")
+		)
+
+		o_fh.flush()
+
+	results = xweka.parse_WEKA_results(output)
+
+	if (p.weka_performances_output_fn):
+		for performance_on in sorted(results):
+			for score, value in sorteditems(results[performance_on]["scores"]):
+				p_f.writerow((clazz, score, performance_on, value))
+
+			p_f.writerow((clazz, "run time", performance_on, run_time))
+
+		p_fh.flush()
+
+	if (p.weka_per_classes_performances_output_fn):
+		for performance_on in sorted(results):
+			if (not "accuracy by class" in results[performance_on]):
+				continue
+
+			classes = sorted(results[performance_on]["accuracy by class"])
+
+			for class_name in classes:
+				for score, value in sorteditems(results[performance_on]["accuracy by class"][class_name]):
+					c_f.writerow((clazz, class_name, score, performance_on, value))
+
+				if (not "confusion matrix" in results[performance_on]):
+					continue
+
+				row = [clazz, class_name, "confusion matrix", performance_on]
+				for class_name_ in classes:
+					row.extend([class_name, results[performance_on]["confusion matrix"][class_name][class_name_]])
+
+				c_f.writerow(row)
+
+		c_fh.flush()
+
+print "\ndone."
