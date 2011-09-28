@@ -14,10 +14,10 @@ resulting scores""")
 g = optparse.OptionGroup(p, "input")
 
 g.add_option("-t", "--training-set", dest = "training_set_fn", metavar = "FILENAME",
-  help = "ARFF-formated training dataset (mandatory)")
+	help = "ARFF-formated training dataset (mandatory)")
 
 g.add_option("-T", "--test-set", dest = "test_set_fn", metavar = "FILENAME",
-  help = """ARFF-formated test dataset. If not test dataset is provided, a
+	help = """ARFF-formated test dataset. If not test dataset is provided, a
 cross-validation will be performed""")
 
 p.add_option_group(g)
@@ -25,45 +25,50 @@ p.add_option_group(g)
 g = optparse.OptionGroup(p, "classifiers")
 
 g.add_option("--exclude", dest = "excluded_classifiers", action = "append", metavar = "CLASS",
-  help = "Exclude this classifier; this option can be used multiple times")
+	help = "Exclude this classifier; this option can be used multiple times")
 
 g.add_option("--exclude-from", dest = "excluded_classifiers_fn", metavar = "FILENAME",
-  help = "Exclude the classifiers declared in this text file (one classifier per line)")
+	help = "Exclude the classifiers declared in this text file (one classifier per line)")
 
 g.add_option("--only", dest = "exclusive_classifiers", action = "append", metavar = "CLASS",
-  help = "Only use this classifier; this option can be used multiple times")
+	help = "Only use this classifier; this option can be used multiple times")
 
 g.add_option("--only-from", dest = "exclusive_classifiers_fn", metavar = "FILENAME",
-  help = "Only use the classifiers declared in this text file (one classifier per line)")
+	help = "Only use the classifiers declared in this text file (one classifier per line)")
 
 p.add_option_group(g)
 
 g = optparse.OptionGroup(p, "output")
 
 g.add_option("-o", "--output", dest = "weka_raw_output_fn", metavar = "FILENAME",
-  help = "Output file for the raw outputs from WEKA classifiers (HTML format)")
+	help = "Output file for the raw outputs from WEKA classifiers (HTML format)")
 
 g.add_option("-p", "--performances", dest = "weka_performances_output_fn", metavar = "FILENAME",
-  help = "Output file for the performances per model (CSV format)")
+	help = "Output file for the performances per model (CSV format)")
 
 g.add_option("-c", "--classes", dest = "weka_per_classes_performances_output_fn", metavar = "FILENAME",
-  help = "Output file for the performances per class (classification schemes only; CSV format)")
+	help = "Output file for the performances per class (classification schemes only; CSV format)")
 
 p.add_option_group(g)
 
 g = optparse.OptionGroup(p, "additional options")
 
+g.add_option("--no-check", dest = "check_classifiers", action = "store_false", default = True,
+	help = """If set, will not check if the selected classifiers are compatible
+with the training set. At least one classifier must be provided with the
+--only or --only-from option.""")
+
 g.add_option("--java-executable", dest = "java_executable", default = "java",
-  help = "Path to the Java interpreter (default: '%default')")
+	help = "Path to the Java interpreter (default: '%default')")
 
 g.add_option("-j", "--java-option", dest = "java_options", action = "append",
-  help = "Option for the Java interpreter; this option can be used multiple times")
+	help = "Option for the Java interpreter; this option can be used multiple times")
 
 g.add_option("-w", "--weka-option", dest = "weka_options", action = "append",
-  help = "Option for the WEKA toolkit; this option can be used multiple times")
+	help = "Option for the WEKA toolkit; this option can be used multiple times")
 
 g.add_option("-q", "--quick-exit", dest = "quick_exit", action = "store_true", default = False,
-  help = """If set, quit the program when pressing Control-C (instead of just
+	help = """If set, quit the program when pressing Control-C (instead of just
 skipping the current running classifier)""")
 
 g.add_option("--version", dest = "display_version", action = "store_true", default = False,
@@ -118,29 +123,32 @@ def read (fn):
 
 if (p.excluded_classifiers):
 	for clazz in p.excluded_classifiers:
-		classifiers_black_list[clazz.lower()] = True
+		classifiers_black_list[clazz] = True
 
 if (p.excluded_classifiers_fn):
 	if (not os.path.exists(p.excluded_classifiers_fn)):
 		error("File '%s' not found." % p.excluded_classifiers_fn)
 
 	for clazz in read(p.excluded_classifiers_fn):
-		classifiers_black_list[clazz.lower()] = True
+		classifiers_black_list[clazz] = True
 
 if (p.exclusive_classifiers):
 	for clazz in p.exclusive_classifiers:
-		classifiers_white_list[clazz.lower()] = True
+		classifiers_white_list[clazz] = True
 
 if (p.exclusive_classifiers_fn):
 	if (not os.path.exists(p.exclusive_classifiers_fn)):
 		error("File '%s' not found." % p.exclusive_classifiers_fn)
 
 	for clazz in read(p.exclusive_classifiers_fn):
-		classifiers_white_list[clazz.lower()] = True
+		classifiers_white_list[clazz] = True
 
 for clazz in sorted(classifiers_black_list) + sorted(classifiers_white_list):
 	if (not clazz.startswith("weka.classifiers.")):
 		error("Invalid class '%s'" % clazz)
+
+if (not p.check_classifiers) and (len(classifiers_white_list) == 0):
+	error("--no-check can only be used when at least one classifier is selected.")
 
 # building the Java call command line
 java_cmd = p.java_executable
@@ -163,7 +171,15 @@ if (p.test_set_fn):
 else:
 	print "test set: none (cross-validation)"
 
-accepted, rejected = xweka.find_compatible_schemes(p.training_set_fn, java_cmd)
+if (p.check_classifiers):
+	accepted, rejected = xweka.find_compatible_schemes(p.training_set_fn, java_cmd)
+else:
+	accepted = classifiers_white_list
+	rejected = classifiers_black_list
+
+classifiers_black_list = {}.fromkeys([clazz.lower() for clazz in classifiers_black_list])
+classifiers_white_list = {}.fromkeys([clazz.lower() for clazz in classifiers_white_list])
+
 accepted_, rejected_ = {}, {}
 
 for clazz in accepted:
@@ -240,7 +256,10 @@ def run_weka_cmd (cmd):
 		stdout, stderr = process.communicate()
 
 		if (stdout == ''):
-			raise Exception("No result returned")
+			if (stderr != ''):
+				raise Exception("No result returned; error was:\n%s" % stdout)
+			else:
+				raise Exception("No result returned")
 
 		return stdout
 
