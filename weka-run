@@ -17,37 +17,44 @@ g.add_option("-t", "--training-set", dest = "training_set_fn", metavar = "FILENA
 	help = "ARFF-formated training dataset (mandatory)")
 
 g.add_option("-T", "--test-set", dest = "test_set_fn", metavar = "FILENAME",
-	help = """ARFF-formated test dataset. If not test dataset is provided, a
-cross-validation will be performed""")
+	help = """ARFF-formated test dataset (optional). If not test dataset is
+provided, a cross-validation will be performed""")
 
 p.add_option_group(g)
 
 g = optparse.OptionGroup(p, "classifiers")
 
 g.add_option("--exclude", dest = "excluded_classifiers", action = "append", metavar = "CLASS",
-	help = "Exclude this classifier; this option can be used multiple times")
+	help = "Exclude this classifier; this option can be used multiple times (optional)")
 
 g.add_option("--exclude-from", dest = "excluded_classifiers_fn", metavar = "FILENAME",
-	help = "Exclude the classifiers declared in this text file (one classifier per line)")
+	help = "Exclude the classifiers declared in this text file (optional; one classifier per line)")
 
 g.add_option("--only", dest = "exclusive_classifiers", action = "append", metavar = "CLASS",
-	help = "Only use this classifier; this option can be used multiple times")
+	help = """Only use this classifier (optional). Multiple classifiers can be
+provided by using this option multiple times""")
 
 g.add_option("--only-from", dest = "exclusive_classifiers_fn", metavar = "FILENAME",
-	help = "Only use the classifiers declared in this text file (one classifier per line)")
+	help = "Only use the classifiers declared in this text file (optional; one classifier per line)")
 
 p.add_option_group(g)
 
 g = optparse.OptionGroup(p, "output")
 
 g.add_option("-o", "--output", dest = "weka_raw_output_fn", metavar = "FILENAME",
-	help = "Output file for the raw outputs from WEKA classifiers (HTML format)")
+	help = "Output file for the raw outputs from WEKA classifiers (mandatory; HTML format)")
 
 g.add_option("-p", "--performances", dest = "weka_performances_output_fn", metavar = "FILENAME",
-	help = "Output file for the performances per model (CSV format)")
+	help = "Output file for the performances per model (optional; CSV format)")
 
 g.add_option("-c", "--classes", dest = "weka_per_classes_performances_output_fn", metavar = "FILENAME",
-	help = "Output file for the performances per class (classification schemes only; CSV format)")
+	help = """Output file for the performances per class (optional; CSV format).
+Results from regression models will be ignored""")
+
+g.add_option("-P", "--predictions", dest = "weka_predictions_output_fn", metavar = "FILENAME",
+	help = """Output file for the predictions per model (optional; CSV format).
+If set, both a training and a test set must be provided. Cannot be used together
+with either the '-p' or '-c' options""")
 
 p.add_option_group(g)
 
@@ -101,10 +108,20 @@ if (not os.path.exists(p.training_set_fn)):
 if (p.test_set_fn) and (not os.path.exists(p.test_set_fn)):
 	error("File '%s' not found." % p.test_set_fn)
 
-if (not p.weka_raw_output_fn) and \
-	(not p.weka_performances_output_fn) and \
-	(not p.weka_per_classes_performances_output_fn):
+if (not p.weka_raw_output_fn):
 	error("No output file was provided.")
+
+if (p.weka_predictions_output_fn):
+	if (p.weka_performances_output_fn or p.weka_per_classes_performances_output_fn):
+		error("-P cannot be used together with -p or -c options.")
+
+	if (not p.test_set_fn):
+		error("-P require a test set to be provided.")
+
+	if (not p.weka_options):
+		p.weka_options = ["-p last"]
+	elif (not "-p last" in p.weka_options):
+		p.weka_options.append("-p last")
 
 classifiers_black_list = {}
 classifiers_white_list = {}
@@ -329,6 +346,11 @@ if (p.weka_per_classes_performances_output_fn):
 	c_f = csv.writer(c_fh)
 	c_f.writerow(("classifier", "class", "score", "target", "value"))
 
+if (p.weka_predictions_output_fn):
+	P_fh = open(p.weka_predictions_output_fn, 'w')
+	P_f = csv.writer(P_fh)
+	P_f.writerow(("classifier", "instance", "actual", "predicted"))
+
 def sorteditems (dict):
 	for key in sorted(dict):
 		yield key, dict[key]
@@ -367,37 +389,48 @@ for clazz in accepted_:
 
 		o_fh.flush()
 
-	results = xweka.parse_WEKA_results(output)
+	# extraction of WEKA predictions
+	if (p.weka_predictions_output_fn):
+		results = xweka.parse_WEKA_predictions(output)
 
-	if (p.weka_performances_output_fn):
-		for performance_on in sorted(results):
-			for score, value in sorteditems(results[performance_on]["scores"]):
-				p_f.writerow((clazz, score, performance_on, value))
+		for i, (actual_class, predicted_class) in enumerate(results):
+			P_f.writerow((clazz, i+1, actual_class, predicted_class))
 
-			p_f.writerow((clazz, "run time", performance_on, run_time))
+		P_fh.flush()
 
-		p_fh.flush()
+	# extraction of WEKA scores
+	else:
+		results = xweka.parse_WEKA_scores(output)
 
-	if (p.weka_per_classes_performances_output_fn):
-		for performance_on in sorted(results):
-			if (not "accuracy by class" in results[performance_on]):
-				continue
+		if (p.weka_performances_output_fn):
+			for performance_on in sorted(results):
+				for score, value in sorteditems(results[performance_on]["scores"]):
+					p_f.writerow((clazz, score, performance_on, value))
 
-			classes = sorted(results[performance_on]["accuracy by class"])
+				p_f.writerow((clazz, "run time", performance_on, run_time))
 
-			for class_name in classes:
-				for score, value in sorteditems(results[performance_on]["accuracy by class"][class_name]):
-					c_f.writerow((clazz, class_name, score, performance_on, value))
+			p_fh.flush()
 
-				if (not "confusion matrix" in results[performance_on]):
+		if (p.weka_per_classes_performances_output_fn):
+			for performance_on in sorted(results):
+				if (not "accuracy by class" in results[performance_on]):
 					continue
 
-				row = [clazz, class_name, "confusion matrix", performance_on]
-				for class_name_ in classes:
-					row.extend([class_name, results[performance_on]["confusion matrix"][class_name][class_name_]])
+				classes = sorted(results[performance_on]["accuracy by class"])
 
-				c_f.writerow(row)
+				for class_name in classes:
+					for score, value in sorteditems(results[performance_on]["accuracy by class"][class_name]):
+						c_f.writerow((clazz, class_name, score, performance_on, value))
 
-		c_fh.flush()
+					if (not "confusion matrix" in results[performance_on]):
+						continue
+
+					row = [clazz, class_name, "confusion matrix", performance_on]
+					for class_name_ in classes:
+						row.extend([class_name, results[performance_on]["confusion matrix"][class_name][class_name_]])
+
+					c_f.writerow(row)
+
+			c_fh.flush()
 
 print "\ndone."

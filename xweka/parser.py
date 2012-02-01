@@ -4,10 +4,10 @@ import pyparsing as pp
 
 pp.ParserElement.setDefaultWhitespaceChars(" \t")
 
-SOL = pp.Suppress(pp.LineStart())
-EOL = pp.Suppress(pp.LineEnd())
+SOL = pp.Suppress(pp.LineStart()).setName("START_OF_LINE")
+EOL = pp.Suppress(pp.LineEnd()).setName("END_OF_LINE")
 
-EMPTY_LINES = pp.Suppress(pp.OneOrMore(pp.LineEnd()))
+EMPTY_LINES = pp.Suppress(pp.OneOrMore(pp.LineEnd())).setName("EMPTY_LINES")
 
 def int_or_float (value):
 	if (value == 0):
@@ -25,7 +25,15 @@ REAL = pp.Combine(
 	pp.Word(pp.nums) +
 	pp.Optional(pp.Literal('.')) +
 	pp.Optional(pp.Word(pp.nums))
-).setParseAction(lambda tokens: int_or_float(float(tokens[0])))
+)\
+	.setParseAction(lambda tokens: int_or_float(float(tokens[0])))\
+	.setName("REAL")
+
+INTEGER = pp.Word(pp.nums)\
+	.setParseAction(lambda tokens: int(tokens[0]))\
+	.setName("INTEGER")
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::: Grammar for WEKA scores
 
 # Training and test scores
 SCORES_HEADER = \
@@ -96,7 +104,7 @@ CONFUSION_MATRIX_HEADER = \
 	EOL
 
 CONFUSION_MATRIX_ENTRY = \
-	pp.OneOrMore(pp.Word(pp.nums).setParseAction(lambda tokens: int(tokens[0]))) + \
+	pp.OneOrMore(INTEGER) + \
 	pp.Suppress('|' + pp.Word(pp.alphanums) + '=') + \
 	pp.Word(pp.printables) + \
 	EOL
@@ -106,13 +114,29 @@ CONFUSION_MATRIX_BLOCK = \
 	pp.Group(pp.OneOrMore(pp.Group(CONFUSION_MATRIX_ENTRY)))
 
 # Whole report
-WEKA_OUTPUT = \
+WEKA_SCORES = \
 	pp.Suppress(pp.SkipTo(SCORES_HEADER)) + \
 	pp.OneOrMore(
 		SCORES_BLOCK + EMPTY_LINES + \
 		pp.Optional(ACCURACY_PER_CLASS_BLOCK + EMPTY_LINES) + \
 		pp.Optional(CONFUSION_MATRIX_BLOCK + EMPTY_LINES)
 	)
+
+#::::::::::::::::::::::::::::::::::::::::::::::::: Grammar for WEKA predictions
+
+PREDICTIONS_HEADER = \
+	EMPTY_LINES + \
+	pp.Literal("=== Predictions on test data ===") + \
+	EMPTY_LINES + \
+	pp.Literal("inst#") + \
+	pp.Literal("actual") + \
+	pp.Literal("predicted") + \
+	pp.restOfLine
+
+WEKA_PREDICTIONS = \
+	pp.Suppress(PREDICTIONS_HEADER)
+
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def error (msg):
 	print >>sys.stderr, "ERROR: " + msg
@@ -126,13 +150,14 @@ def parse (grammar, text):
 		return grammar.parseString(text)
 
 	except pp.ParseException as msg:
-		error("Invalid WEKA output.\n" + \
+		error(
+			"Invalid WEKA output.\n" + \
 			"%s\n" % msg.line + \
 			' ' * (msg.column - 1) + "^\n%s" % msg
 		)
 
-def parse_WEKA_results (text):
-	data = parse(WEKA_OUTPUT, text)
+def parse_WEKA_scores (text):
+	data = parse(WEKA_SCORES, text)
 
 	if (len(data) % 2 != 0):
 		error("Invalid WEKA output: blocks are missing.")
@@ -202,5 +227,25 @@ def parse_WEKA_results (text):
 
 		else:
 			error(block_name)
+
+	return results
+
+def parse_WEKA_predictions (text):
+	parse(WEKA_PREDICTIONS, text)
+	data = [line.strip() for line in text.split('\n')]
+
+	i = data.index("=== Predictions on test data ===") + 3
+
+	results = []
+	while True:
+		if (data[i] == ''):
+			break
+
+		items = data[i].split()
+		actual = items[1].split(':', 1)[1]
+		predicted = items[2].split(':', 1)[1]
+
+		results.append((actual, predicted))
+		i += 1
 
 	return results

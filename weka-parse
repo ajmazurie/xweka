@@ -3,8 +3,8 @@
 import optparse, sys, os, json
 import xweka
 
-p = optparse.OptionParser(description = """weka-parse: Parser for the raw
-output of WEKA classification and regression models""")
+p = optparse.OptionParser(description = """weka-parse: Parse raw WEKA output
+and extract scores of classification and regression runs""")
 
 g = optparse.OptionGroup(p, "input")
 
@@ -73,7 +73,7 @@ while True:
 
 	raw.append(line)
 
-results = xweka.parse_WEKA_results(''.join(raw))
+results = xweka.parse_WEKA_scores(''.join(raw))
 
 if (p.json_fn):
 	o = open(p.json_fn, 'w')
