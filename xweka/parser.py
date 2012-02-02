@@ -125,7 +125,6 @@ WEKA_SCORES = \
 #::::::::::::::::::::::::::::::::::::::::::::::::: Grammar for WEKA predictions
 
 PREDICTIONS_HEADER = \
-	EMPTY_LINES + \
 	pp.Literal("=== Predictions on test data ===") + \
 	EMPTY_LINES + \
 	pp.Literal("inst#") + \
@@ -134,7 +133,7 @@ PREDICTIONS_HEADER = \
 	pp.restOfLine
 
 WEKA_PREDICTIONS = \
-	pp.Suppress(PREDICTIONS_HEADER)
+	pp.Suppress(pp.SkipTo(PREDICTIONS_HEADER))
 
 #:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -236,16 +235,29 @@ def parse_WEKA_predictions (text):
 
 	i = data.index("=== Predictions on test data ===") + 3
 
-	results = []
-	while True:
-		if (data[i] == ''):
-			break
+	try:
+		assert (data[i-4] == ''), "Empty line is missing after header"
 
-		items = data[i].split()
-		actual = items[1].split(':', 1)[1]
-		predicted = items[2].split(':', 1)[1]
+		def extract_class (value):
+			assert (':' in value), "Invalid class: '%s'" % value
+			class_idx, class_value = value.split(':', 1)
+			assert (class_idx.isdigit()), "Invalid class: '%s'" % value
 
-		results.append((actual, predicted))
-		i += 1
+			return class_value
+
+		results = []
+		while True:
+			if (data[i] == ''):
+				break
+
+			items = data[i].split()
+			actual = extract_class(items[1])
+			predicted = extract_class(items[2])
+
+			results.append((actual, predicted))
+			i += 1
+
+	except AssertionError as msg:
+		error("Invalid WEKA output.\n%s" % msg)
 
 	return results
