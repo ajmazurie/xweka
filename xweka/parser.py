@@ -235,8 +235,19 @@ def parse_WEKA_predictions (text):
 
 	i = data.index("=== Predictions on test data ===") + 3
 
+	def isfloat (text):
+		try:
+			float(text)
+			return True
+		except:
+			return False
+
 	try:
 		assert (data[i-4] == ''), "Empty line is missing after header"
+
+		# is there a weight provided for the prediction?
+		assert (data[i-1].startswith("inst#"))
+		has_weight = ("prediction" in data[i-1])
 
 		def extract_class (value):
 			assert (':' in value), "Invalid class: '%s'" % value
@@ -254,7 +265,20 @@ def parse_WEKA_predictions (text):
 			actual = extract_class(items[1])
 			predicted = extract_class(items[2])
 
-			results.append((actual, predicted))
+			if (has_weight):
+				# case where the 'error' column is empty
+				if (isfloat(items[3])):
+					weight = float(items[3])
+
+				# case where the 'error' column is non-empty
+				else:
+					assert isfloat(items[4]), "Unable to find the prediction weight"
+					weight = float(items[4])
+
+			else:
+				weight = ''
+
+			results.append((actual, predicted, weight))
 			i += 1
 
 	except AssertionError as msg:

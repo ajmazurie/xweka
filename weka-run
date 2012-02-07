@@ -349,7 +349,7 @@ if (p.weka_per_classes_performances_output_fn):
 if (p.weka_predictions_output_fn):
 	P_fh = open(p.weka_predictions_output_fn, 'w')
 	P_f = csv.writer(P_fh)
-	P_f.writerow(("classifier", "instance", "actual", "predicted"))
+	P_f.writerow(("classifier", "instance", "actual", "predicted", "weight"))
 
 def sorteditems (dict):
 	for key in sorted(dict):
@@ -393,8 +393,8 @@ for clazz in accepted_:
 	if (p.weka_predictions_output_fn):
 		results = xweka.parse_WEKA_predictions(output)
 
-		for i, (actual_class, predicted_class) in enumerate(results):
-			P_f.writerow((clazz, i+1, actual_class, predicted_class))
+		for i, (actual_class, predicted_class, weight) in enumerate(results):
+			P_f.writerow((clazz, i+1, actual_class, predicted_class, weight))
 
 		P_fh.flush()
 
